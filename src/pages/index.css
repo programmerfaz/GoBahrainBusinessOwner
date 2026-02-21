@@ -594,6 +594,21 @@
   min-height: 80px;
 }
 
+.post-create-form .file-name {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+
+.post-card-price {
+  display: inline-block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+  opacity: 0.95;
+}
+
 .post-card-item {
   border-radius: 12px;
   overflow: hidden;
@@ -647,6 +662,24 @@
 .post-card-date {
   font-size: 0.75rem;
   opacity: 0.9;
+}
+
+.post-card-update-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.post-card-update-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .post-card-item .post-card-title {

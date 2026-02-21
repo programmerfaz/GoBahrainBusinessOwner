@@ -29,7 +29,7 @@ npm run dev
 ## Profile Submit (Supabase + Pinecone)
 
 On profile submit:
-- **Supabase** — Inserts into `client`; for Restaurant → `restaurant_client`; Place → `place_client` + `place`; Event → `event_clients`.
+- **Supabase** — Inserts into `client`; for Restaurant → `restaurant_client`; Place → `place_client` + `place`; Event → `event_organizer_client`.
 - **Pinecone** — Merged client + entity data is sent to Edge Function, embedded via OpenAI, and upserted.
 
 Deploy the Edge Function and set secrets:

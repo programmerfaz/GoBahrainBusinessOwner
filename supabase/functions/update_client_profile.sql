@@ -75,14 +75,18 @@ BEGIN
       suitable_for = COALESCE(NULLIF(TRIM(COALESCE(p_place->>'suitable_for','')), ''), suitable_for)
     WHERE a_uuid = client_uuid;
   ELSIF p_type_choice = 'event_organizer' AND p_event IS NOT NULL THEN
-    UPDATE public.event_clients SET
+    UPDATE public.event_organizer_client SET
       event_type = COALESCE(p_event->>'event_type', ''),
       indoor_outdoor = COALESCE(p_event->>'indoor_outdoor', '')
     WHERE a_uuid = client_uuid;
     IF p_event->>'event_uuid' IS NOT NULL AND TRIM(p_event->>'event_uuid') != '' THEN
       UPDATE public.events SET
         event_name = COALESCE(NULLIF(TRIM(p_event->>'event_name'), ''), event_name),
+        name = COALESCE(NULLIF(TRIM(p_event->>'name'), ''), name),
+        status = COALESCE(NULLIF(TRIM(p_event->>'status'), ''), status),
         venue = COALESCE(p_event->>'venue', venue),
+        lat = CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE lat END,
+        "long" = CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE "long" END,
         start_date = CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE start_date END,
         end_date = CASE WHEN TRIM(COALESCE(p_event->>'end_date','')) != '' THEN (TRIM(p_event->>'end_date'))::date ELSE end_date END,
         start_time = CASE WHEN TRIM(COALESCE(p_event->>'start_time','')) != '' THEN (TRIM(p_event->>'start_time'))::time ELSE start_time END,
@@ -91,7 +95,11 @@ BEGIN
     ELSIF EXISTS (SELECT 1 FROM public.events WHERE client_a_uuid = client_uuid) THEN
       UPDATE public.events SET
         event_name = COALESCE(NULLIF(TRIM(p_event->>'event_name'), ''), event_name),
+        name = COALESCE(NULLIF(TRIM(p_event->>'name'), ''), name),
+        status = COALESCE(NULLIF(TRIM(p_event->>'status'), ''), status),
         venue = COALESCE(p_event->>'venue', venue),
+        lat = CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE lat END,
+        "long" = CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE "long" END,
         start_date = CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE start_date END,
         end_date = CASE WHEN TRIM(COALESCE(p_event->>'end_date','')) != '' THEN (TRIM(p_event->>'end_date'))::date ELSE end_date END,
         start_time = CASE WHEN TRIM(COALESCE(p_event->>'start_time','')) != '' THEN (TRIM(p_event->>'start_time'))::time ELSE start_time END,
@@ -99,11 +107,15 @@ BEGIN
       WHERE client_a_uuid = client_uuid
       AND event_uuid = (SELECT event_uuid FROM public.events WHERE client_a_uuid = client_uuid LIMIT 1);
     ELSE
-      INSERT INTO public.events (client_a_uuid, event_name, venue, start_date, end_date, start_time, end_time)
+      INSERT INTO public.events (client_a_uuid, event_name, name, status, venue, lat, "long", start_date, end_date, start_time, end_time)
       VALUES (
         client_uuid,
         COALESCE(p_event->>'event_name', ''),
+        COALESCE(p_event->>'name', p_event->>'event_name', ''),
+        COALESCE(NULLIF(TRIM(p_event->>'status'), ''), 'coming_soon'),
         COALESCE(p_event->>'venue', ''),
+        CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE NULL END,
+        CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE NULL END,
         CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE NULL END,
         CASE WHEN TRIM(COALESCE(p_event->>'end_date','')) != '' THEN (TRIM(p_event->>'end_date'))::date ELSE NULL END,
         CASE WHEN TRIM(COALESCE(p_event->>'start_time','')) != '' THEN (TRIM(p_event->>'start_time'))::time ELSE NULL END,

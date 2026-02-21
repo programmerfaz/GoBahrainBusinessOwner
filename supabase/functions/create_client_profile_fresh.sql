@@ -92,18 +92,22 @@ BEGIN
       COALESCE(NULLIF(p_place->>'suitable_for', ''), '')
     );
   ELSIF p_type_choice = 'event_organizer' AND p_event IS NOT NULL THEN
-    INSERT INTO public.event_clients (a_uuid, event_type, indoor_outdoor)
+    INSERT INTO public.event_organizer_client (a_uuid, event_type, indoor_outdoor)
     VALUES (
       client_uuid,
       COALESCE(p_event->>'event_type', ''),
       COALESCE(p_event->>'indoor_outdoor', '')
     );
-    INSERT INTO public.events (event_uuid, client_a_uuid, event_name, venue, start_date, end_date, start_time, end_time)
+    INSERT INTO public.events (event_uuid, client_a_uuid, event_name, name, status, venue, lat, "long", start_date, end_date, start_time, end_time)
     VALUES (
       COALESCE((p_event->>'event_uuid')::uuid, gen_random_uuid()),
       client_uuid,
       COALESCE(p_event->>'event_name', ''),
+      COALESCE(p_event->>'name', p_event->>'event_name', ''),
+      COALESCE(NULLIF(TRIM(p_event->>'status'), ''), 'coming_soon'),
       COALESCE(p_event->>'venue', ''),
+      CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE NULL END,
+      CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE NULL END,
       CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE NULL END,
       CASE WHEN TRIM(COALESCE(p_event->>'end_date','')) != '' THEN (TRIM(p_event->>'end_date'))::date ELSE NULL END,
       CASE WHEN TRIM(COALESCE(p_event->>'start_time','')) != '' THEN (TRIM(p_event->>'start_time'))::time ELSE NULL END,

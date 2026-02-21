@@ -21,7 +21,6 @@ function App() {
             <>
               <Link to="/">Home</Link>
               <Link to="/profile">Profile</Link>
-              <Link to="/posts">Posts</Link>
               <span className="nav-user">{user.name}</span>
               <button type="button" className="btn btn-link" onClick={logout}>Sign Out</button>
             </>

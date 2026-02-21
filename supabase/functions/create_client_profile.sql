@@ -84,7 +84,7 @@ BEGIN
       COALESCE(NULLIF(p_place->>'suitable_for', ''), '')
     );
   ELSIF p_type_choice = 'event_organizer' AND p_event IS NOT NULL THEN
-    INSERT INTO public.event_clients (a_uuid, event_type, indoor_outdoor)
+    INSERT INTO public.event_organizer_client (a_uuid, event_type, indoor_outdoor)
     VALUES (
       client_uuid,
       COALESCE(p_event->>'event_type', ''),

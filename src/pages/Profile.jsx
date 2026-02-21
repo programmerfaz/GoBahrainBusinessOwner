@@ -62,7 +62,17 @@ const EVENT_ORGANIZER_FIELDS = [
 
 const EVENT_FIELDS = [
   { key: 'event_name', label: 'Event Name', type: 'text', required: true },
+  { key: 'name', label: 'Name', type: 'text', required: false, placeholder: 'Display name' },
+  { key: 'status', label: 'Status', type: 'select', required: false, options: [
+    { value: '', label: 'Select...' },
+    { value: 'coming_soon', label: 'Coming Soon' },
+    { value: 'active', label: 'Active' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'postponed', label: 'Postponed' },
+  ]},
   { key: 'venue', label: 'Venue', type: 'text', required: false },
+  { key: 'lat', label: 'Latitude', type: 'text', required: false, placeholder: 'e.g. 26.2285' },
+  { key: 'long', label: 'Longitude', type: 'text', required: false, placeholder: 'e.g. 50.5860' },
   { key: 'start_date', label: 'Start Date', type: 'date', required: false },
   { key: 'end_date', label: 'End Date', type: 'date', required: false },
   { key: 'start_time', label: 'Start Time', type: 'time', required: false },
@@ -110,7 +120,11 @@ function profileToForm(p) {
     const ev = Array.isArray(p.events) && p.events[0] ? p.events[0] : {}
     f.event_uuid = ev.event_uuid ?? ''
     f.event_name = ev.event_name ?? ''
+    f.name = ev.name ?? ev.event_name ?? ''
+    f.status = ev.status ?? ''
     f.venue = ev.venue ?? ''
+    f.lat = ev.lat ?? ''
+    f.long = ev.long ?? ''
     f.start_date = ev.start_date != null ? String(ev.start_date).slice(0, 10) : ''
     f.end_date = ev.end_date != null ? String(ev.end_date).slice(0, 10) : ''
     f.start_time = ev.start_time != null ? String(ev.start_time).slice(0, 5) : ''
@@ -486,7 +500,13 @@ export default function Profile() {
                 {EVENT_FIELDS.map((f) => (
                   <label key={f.key}>
                     {f.label} {f.required && '*'}
-                    {f.type === 'date' ? (
+                    {f.type === 'select' ? (
+                      <select name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
+                        {f.options?.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : f.type === 'date' ? (
                       <input type="date" name={f.key} value={form[f.key] || ''} onChange={handleChange} />
                     ) : f.type === 'time' ? (
                       <input type="time" name={f.key} value={form[f.key] || ''} onChange={handleChange} />

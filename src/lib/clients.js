@@ -25,7 +25,7 @@ export async function getClientsByAccount(accountUuid) {
 }
 
 /**
- * Fetch a single client with full joined subtype (restaurant_client, place_client+place, event_clients)
+ * Fetch a single client with full joined subtype (restaurant_client, place_client+place, event_organizer_client)
  */
 export async function getClientFull(clientUuid) {
   const { data, error } = await supabase.rpc('get_client_full', {

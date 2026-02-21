@@ -40,7 +40,7 @@ BEGIN
       'tags', COALESCE(c->'tags', '[]'::jsonb)
     );
   ELSIF ctype = 'event_organizer' THEN
-    SELECT to_jsonb(ec0) INTO ec FROM public.event_clients ec0 WHERE ec0.a_uuid = p_client_uuid;
+    SELECT to_jsonb(ec0) INTO ec FROM public.event_organizer_client ec0 WHERE ec0.a_uuid = p_client_uuid;
     result := c || COALESCE(ec, '{}'::jsonb) || jsonb_build_object('tags', COALESCE(c->'tags', '[]'::jsonb));
     BEGIN
       SELECT COALESCE(jsonb_agg(ev ORDER BY ev->>'start_date' NULLS LAST), '[]'::jsonb)
