@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-bg: #f8faf9;
+  --color-surface: #ffffff;
+  --color-border: #e2e8e6;
+  --color-primary: #1a5f4a;
+  --color-primary-hover: #0d4032;
+  --color-text: #1a2e28;
+  --color-text-muted: #5a6e66;
+  --color-accent: #c9a227;
+  --font: 'Outfit', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+}
