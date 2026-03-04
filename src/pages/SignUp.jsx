@@ -6,7 +6,13 @@ import { useAuth } from '../context/AuthContext'
 export default function SignUp() {
   const navigate = useNavigate()
   const { login } = useAuth()
-  const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' })
+  const [form, setForm] = useState({
+    email: '',
+    password: '',
+    name: '',
+    phone: '',
+    clientType: 'restaurant',
+  })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -21,7 +27,7 @@ export default function SignUp() {
     try {
       const account = await signUp(form)
       login(account)
-      navigate('/')
+      navigate('/profile')
     } catch (err) {
       setError(err.message || 'Sign up failed')
     } finally {
@@ -72,6 +78,20 @@ export default function SignUp() {
               onChange={handleChange}
               placeholder="12345678"
             />
+          </label>
+
+          <label>
+            Business type
+            <select
+              name="clientType"
+              value={form.clientType}
+              onChange={handleChange}
+              aria-label="Select business type"
+            >
+              <option value="restaurant">Restaurant</option>
+              <option value="place">Place</option>
+              <option value="event_organizer">Event</option>
+            </select>
           </label>
 
           <label>

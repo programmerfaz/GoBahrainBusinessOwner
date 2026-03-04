@@ -18,7 +18,7 @@ export default function SignIn() {
     try {
       const account = await signIn(email, password)
       login(account)
-      navigate('/')
+      navigate('/profile')
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {
@@ -32,7 +32,7 @@ export default function SignIn() {
         <h1>Sign In</h1>
         <p className="auth-subtitle">Welcome back to Go Bahrain</p>
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
           {error && <div className="auth-error">{error}</div>}
 
           <label>
@@ -43,7 +43,7 @@ export default function SignIn() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
-              autoComplete="email"
+              autoComplete="off"
             />
           </label>
 
@@ -55,7 +55,7 @@ export default function SignIn() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              autoComplete="current-password"
+              autoComplete="new-password"
             />
           </label>
 
@@ -65,8 +65,15 @@ export default function SignIn() {
         </form>
 
         <p className="auth-footer">
-          Don't have an account? <Link to="/signup">Sign up</Link>
+          Don&apos;t have an account? <Link to="/signup">Sign up</Link>
         </p>
+
+        <div className="auth-note" role="note" aria-label="Account request note">
+          <p className="auth-note-title">Need account access?</p>
+          <p className="auth-note-text">
+            Email <a href="mailto:gobahraintourism@gmail.com">gobahraintourism@gmail.com</a> with your business name and a short description of who you are to receive your credentials.
+          </p>
+        </div>
       </div>
     </div>
   )

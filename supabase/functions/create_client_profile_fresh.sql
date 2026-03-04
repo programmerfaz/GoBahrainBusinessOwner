@@ -43,6 +43,7 @@ BEGIN
     lat,
     long,
     timings,
+    qrcode,
     tags
   ) VALUES (
     client_uuid,
@@ -56,6 +57,7 @@ BEGIN
     v_lat,
     v_long,
     NULLIF(p_client->>'timings', ''),
+    client_uuid::text,
     COALESCE(
       CASE WHEN jsonb_typeof(COALESCE(p_client->'tags','null'::jsonb)) = 'array' THEN p_client->'tags'
            WHEN TRIM(COALESCE(p_client->>'tags','')) != '' THEN (SELECT COALESCE(jsonb_agg(trimmed), '[]'::jsonb) FROM (SELECT trim(unnest(string_to_array(p_client->>'tags', ','))) AS trimmed) x WHERE trimmed != '')

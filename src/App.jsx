@@ -22,12 +22,12 @@ function App() {
               <Link to="/">Home</Link>
               <Link to="/profile">Profile</Link>
               <span className="nav-user">{user.name}</span>
-              <button type="button" className="btn btn-link" onClick={logout}>Sign Out</button>
+              <button type="button" className="btn-link" onClick={logout}>Sign Out</button>
             </>
           ) : (
             <>
-              <Link to="/signin">Sign In</Link>
-              <Link to="/signup">Sign Up</Link>
+              <Link to="/signin">Sign in</Link>
+              <Link to="/signup">Sign up</Link>
             </>
           )}
         </nav>
@@ -35,15 +35,15 @@ function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/profile" element={user ? <Profile /> : <Navigate to="/" replace />} />
+          <Route path="/signin" element={user ? <Navigate to="/profile" replace /> : <SignIn />} />
+          <Route path="/signup" element={user ? <Navigate to="/profile" replace /> : <SignUp />} />
+          <Route path="/profile" element={user ? <Profile /> : <Navigate to="/signin" replace />} />
           <Route path="/profile/:clientId/posts" element={user ? <ClientPosts /> : <Navigate to="/" replace />} />
           <Route path="/posts" element={user ? <Posts /> : <Navigate to="/" replace />} />
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/signup" element={<SignUp />} />
         </Routes>
       </main>
       <footer className="footer">
-        <p>Go Bahrain — Tourism & Business Platform</p>
+        <p>Go Bahrain &middot; Tourism &amp; Business Platform &middot; Kingdom of Bahrain</p>
       </footer>
     </div>
   )

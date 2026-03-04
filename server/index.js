@@ -43,6 +43,12 @@ function buildSemanticText(p) {
   if (p.suitable_for) parts.push(`Suitable for: ${p.suitable_for}.`)
   if (p.event_name) parts.push(`Event: ${p.event_name}.`)
   if (p.venue) parts.push(`Venue: ${p.venue}.`)
+  if (Array.isArray(p.branch) && p.branch.length) {
+    const text = p.branch
+      .map((b) => `${b?.area_name || 'Area'} (${b?.lat || '-'}, ${b?.long || '-'})`)
+      .join('; ')
+    parts.push(`Branches: ${text}.`)
+  }
   if (p.start_date) parts.push(`Starts: ${p.start_date}.`)
   if (p.end_date) parts.push(`Ends: ${p.end_date}.`)
   if (p.start_time) parts.push(`Start time: ${p.start_time}.`)
@@ -58,11 +64,26 @@ function buildMetadataFromPayload(p) {
   const metadata = {}
   for (const [k, v] of Object.entries(p)) {
     if (PINECONE_METADATA_EXCLUDE.has(k) || v == null) continue
-    if (Array.isArray(v)) metadata[k] = v.map(String)
+    if (Array.isArray(v)) metadata[k] = v.map((item) => (typeof item === 'object' ? JSON.stringify(item) : String(item)))
     else if (typeof v === 'boolean' || typeof v === 'number') metadata[k] = v
     else metadata[k] = String(v)
   }
   return metadata
+}
+
+function normalizeBranches(raw) {
+  const arr = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'string' && raw.trim()
+      ? (() => { try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
+      : [])
+  return arr
+    .map((b) => ({
+      area_name: String(b?.area_name ?? b?.name ?? '').trim(),
+      lat: String(b?.lat ?? '').trim(),
+      long: String(b?.long ?? '').trim(),
+    }))
+    .filter((b) => b.area_name || b.lat || b.long)
 }
 
 /** Build unified merged payload from fetched profile — same structure as create */
@@ -85,12 +106,21 @@ function buildMergedPayloadFromProfile(profile, tags) {
     record_type: 'client',
   }
   if (profile.client_type === 'restaurant') {
-    return { ...base, cuisine: profile.cuisine || '', meal_type: profile.meal_type || '', food_type: profile.food_type || '', speciality: profile.speciality || '', isfoodtruck: profile.isfoodtruck ?? false }
+    return {
+      ...base,
+      cuisine: profile.cuisine || '',
+      meal_type: profile.meal_type || '',
+      food_type: profile.food_type || '',
+      speciality: profile.speciality || '',
+      isfoodtruck: profile.isfoodtruck ?? false,
+      branch: normalizeBranches(profile.branch),
+    }
   }
   if (profile.client_type === 'place') {
     const placeName = profile.place_name || profile.name || ''
     return { ...base, category: profile.category || '', indoor_outdoor: profile.indoor_outdoor || '', place_uuid: profile.place_uuid || '', name: placeName, place_name: placeName, place_description: profile.place_description || profile.description || '', opening_time: profile.opening_time ?? '', closing_time: profile.closing_time ?? '', entry_cost: profile.entry_cost ?? '', suitable_for: profile.suitable_for || '' }
   }
+  // event_organizer: event_type/indoor_outdoor from events row; events[] for multi-vector
   if (profile.client_type === 'event_organizer') {
     const evBase = { ...base, event_type: profile.event_type || '', indoor_outdoor: profile.indoor_outdoor || '', record_type: 'event' }
     const events = Array.isArray(profile.events) ? profile.events : []
@@ -119,6 +149,79 @@ async function pineconeDelete(pcHost, pcKey, ids) {
   return res.ok
 }
 
+async function pineconeUpsertPayloads(payloads) {
+  let pineconeOk = false
+  let pineconeError = null
+
+  if (!openaiKey || !pineconeKey || !pineconeHost) {
+    pineconeError = 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env'
+    return { pineconeOk, pineconeError }
+  }
+
+  for (const mergedPayload of payloads) {
+    const vectorId = mergedPayload.event_uuid || mergedPayload.client_a_uuid
+    const text = buildSemanticText(mergedPayload)
+    const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
+    })
+    if (!openaiRes.ok) {
+      pineconeError = `OpenAI failed: ${await openaiRes.text()}`
+      break
+    }
+    const openaiData = await openaiRes.json()
+    const embedding = openaiData?.data?.[0]?.embedding
+    if (!Array.isArray(embedding)) {
+      pineconeError = 'Invalid embedding from OpenAI'
+      break
+    }
+
+    const metadata = buildMetadataFromPayload(mergedPayload)
+    const pcUrl = `${pineconeHost.replace(/\/$/, '')}/vectors/upsert`
+    const pcRes = await fetch(pcUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Key': pineconeKey,
+        'X-Pinecone-Api-Version': '2025-10',
+      },
+      body: JSON.stringify({ vectors: [{ id: vectorId, values: embedding, metadata }] }),
+    })
+    if (!pcRes.ok) {
+      pineconeError = `Pinecone failed: ${await pcRes.text()}`
+      break
+    }
+    pineconeOk = true
+  }
+
+  return { pineconeOk, pineconeError }
+}
+
+async function refreshPineconeFromClient(clientUuid, tags = null) {
+  const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', {
+    p_client_uuid: clientUuid,
+  })
+  if (fetchError || !fullProfile) {
+    return { pineconeOk: false, pineconeError: fetchError?.message || 'Failed to fetch profile', profile: null }
+  }
+
+  const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
+  const mergedResult = buildMergedPayloadFromProfile(profile, tags)
+  const payloads = Array.isArray(mergedResult) ? mergedResult : [mergedResult]
+
+  if (openaiKey && pineconeKey && pineconeHost) {
+    const idsToDelete = [clientUuid]
+    if (profile.client_type === 'event_organizer' && Array.isArray(profile.events)) {
+      profile.events.forEach((ev) => { if (ev?.event_uuid) idsToDelete.push(ev.event_uuid) })
+    }
+    await pineconeDelete(pineconeHost, pineconeKey, idsToDelete)
+  }
+
+  const { pineconeOk, pineconeError } = await pineconeUpsertPayloads(payloads)
+  return { pineconeOk, pineconeError, profile }
+}
+
 function buildMergedPayload(clientRow, typeChoice, typeData) {
   const base = {
     client_a_uuid: clientRow.client_a_uuid,
@@ -139,6 +242,11 @@ function buildMergedPayload(clientRow, typeChoice, typeData) {
   return { ...base, ...typeData }
 }
 
+// Profile create/update: two tables per type. Supabase = client first, then subtype.
+// - Restaurant: client → restaurant_client
+// - Place: client → place (category, indoor_outdoor on place)
+// - Event organizer: client → events (event_type, indoor_outdoor on events)
+// Pinecone: upsert one vector per profile = combined client + subtype payload (semantic text + metadata).
 app.post('/api/submit-profile', async (req, res) => {
   console.log('[Submit] Request received')
   try {
@@ -159,12 +267,12 @@ app.post('/api/submit-profile', async (req, res) => {
       account_a_uuid: accountUuid,
       business_name: form.business_name?.trim() || '',
       description: form.description?.trim() || null,
-      rating: form.rating?.trim() || null,
+      rating: String(form.rating ?? '').trim() || null,
       price_range: form.price_range?.trim() || null,
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
-      client_image: form.client_image?.trim() || null,
-      lat: form.lat?.trim() || null,
-      long: form.long?.trim() || null,
+      client_image: String(form.client_image ?? '').trim() || null,
+      lat: String(form.lat ?? '').trim() || null,
+      long: String(form.long ?? '').trim() || null,
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -175,12 +283,14 @@ app.post('/api/submit-profile', async (req, res) => {
     let pEvent = null
 
     if (typeChoice === 'restaurant') {
+      const branches = normalizeBranches(form.branch)
       pRestaurant = {
         cuisine: form.cuisine?.trim() || '',
         meal_type: form.meal_type?.trim() || '',
         food_type: form.food_type?.trim() || '',
         speciality: form.speciality?.trim() || '',
         isfoodtruck: !!form.isfoodtruck,
+        branch: branches,
       }
     } else if (typeChoice === 'place') {
       const placeUuid = crypto.randomUUID()
@@ -204,8 +314,9 @@ app.post('/api/submit-profile', async (req, res) => {
         name: form.name?.trim() || form.event_name?.trim() || '',
         status: form.status?.trim() || 'coming_soon',
         venue: form.venue?.trim() || '',
-        lat: form.lat?.trim() || null,
-        long: form.long?.trim() || null,
+        image: String(form.image ?? '').trim() || null,
+        lat: String(form.lat ?? '').trim() || null,
+        long: String(form.long ?? '').trim() || null,
         start_date: form.start_date?.trim() || '',
         end_date: form.end_date?.trim() || '',
         start_time: form.start_time?.trim() || '',
@@ -218,12 +329,12 @@ app.post('/api/submit-profile', async (req, res) => {
       account_a_uuid: accountUuid,
       business_name: form.business_name?.trim() || '',
       description: form.description?.trim() || null,
-      rating: form.rating?.trim() || null,
+      rating: String(form.rating ?? '').trim() || null,
       price_range: form.price_range?.trim() || null,
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
-      client_image: form.client_image?.trim() || null,
-      lat: form.lat?.trim() || null,
-      long: form.long?.trim() || null,
+      client_image: String(form.client_image ?? '').trim() || null,
+      lat: String(form.lat ?? '').trim() || null,
+      long: String(form.long ?? '').trim() || null,
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -245,11 +356,21 @@ app.post('/api/submit-profile', async (req, res) => {
       return res.status(500).json({ error: clientError.message, supabaseOk: false })
     }
 
+    if (typeChoice === 'restaurant') {
+      const { error: branchError } = await supabase.rpc('set_restaurant_branches', {
+        p_client_uuid: clientUuid,
+        p_branch: pRestaurant?.branch || [],
+      })
+      if (branchError) {
+        return res.status(500).json({ error: branchError.message, supabaseOk: false })
+      }
+    }
+
     let mergedPayload = { ...clientRow }
     mergedPayload.tags = tags
     if (typeChoice === 'restaurant' && pRestaurant) mergedPayload = buildMergedPayload(clientRow, typeChoice, pRestaurant)
     else if (typeChoice === 'place' && pPlaceClient && pPlace) mergedPayload = buildMergedPayload(clientRow, typeChoice, { ...pPlaceClient, ...pPlace, place_name: pPlace.name, place_description: pPlace.description })
-    else if (typeChoice === 'event_organizer' && pEvent) mergedPayload = buildMergedPayload(clientRow, typeChoice, { ...pEvent, record_type: 'event' })
+    else if (typeChoice === 'event_organizer' && pEvent) mergedPayload = buildMergedPayload(clientRow, typeChoice, { ...pEvent, record_type: 'event', indoor_outdoor: pEvent.indoor_outdoor || pEvent.event_indoor_outdoor || '' })
 
     let pineconeOk = false
     let pineconeError = null
@@ -309,7 +430,7 @@ app.post('/api/submit-profile', async (req, res) => {
 app.put('/api/update-profile', async (req, res) => {
   console.log('[Update] Request received')
   try {
-    const { form, client_a_uuid } = req.body
+    const { form, client_a_uuid, skipPinecone = false } = req.body
     if (!form || !client_a_uuid) {
       return res.status(400).json({ error: 'Missing form or client_a_uuid' })
     }
@@ -323,12 +444,14 @@ app.put('/api/update-profile', async (req, res) => {
     let pEvent = null
 
     if (typeChoice === 'restaurant') {
+      const branches = normalizeBranches(form.branch)
       pRestaurant = {
         cuisine: form.cuisine?.trim() || '',
         meal_type: form.meal_type?.trim() || '',
         food_type: form.food_type?.trim() || '',
         speciality: form.speciality?.trim() || '',
         isfoodtruck: !!form.isfoodtruck,
+        branch: branches,
       }
     } else if (typeChoice === 'place') {
       pPlaceClient = { category: form.category?.trim() || '', indoor_outdoor: form.indoor_outdoor || '' }
@@ -349,8 +472,9 @@ app.put('/api/update-profile', async (req, res) => {
         name: form.name?.trim() || '',
         status: form.status?.trim() || '',
         venue: form.venue?.trim() || '',
-        lat: form.lat?.trim() || null,
-        long: form.long?.trim() || null,
+        image: String(form.image ?? '').trim() || null,
+        lat: String(form.lat ?? '').trim() || null,
+        long: String(form.long ?? '').trim() || null,
         start_date: form.start_date?.trim() || '',
         end_date: form.end_date?.trim() || '',
         start_time: form.start_time?.trim() || '',
@@ -362,12 +486,12 @@ app.put('/api/update-profile', async (req, res) => {
       client_a_uuid,
       business_name: form.business_name?.trim() || '',
       description: form.description?.trim() || null,
-      rating: form.rating?.trim() || null,
+      rating: String(form.rating ?? '').trim() || null,
       price_range: form.price_range?.trim() || null,
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
-      client_image: form.client_image?.trim() || null,
-      lat: form.lat?.trim() || null,
-      long: form.long?.trim() || null,
+      client_image: String(form.client_image ?? '').trim() || null,
+      lat: String(form.lat ?? '').trim() || null,
+      long: String(form.long ?? '').trim() || null,
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -389,75 +513,122 @@ app.put('/api/update-profile', async (req, res) => {
       return res.status(500).json({ error: updateError.message, supabaseOk: false })
     }
 
-    const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', {
-      p_client_uuid: client_a_uuid,
-    })
-
-    if (fetchError || !fullProfile) {
-      return res.status(500).json({ error: 'Failed to fetch updated profile', pineconeError: fetchError?.message })
-    }
-
-    const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
-    const mergedResult = buildMergedPayloadFromProfile(profile, tags)
-    const payloads = Array.isArray(mergedResult) ? mergedResult : [mergedResult]
-
-    let pineconeOk = false
-    let pineconeError = null
-
-    if (!openaiKey || !pineconeKey || !pineconeHost) {
-      pineconeError = 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env'
-      console.error('[Pinecone]', pineconeError)
-    } else {
-      const idsToDelete = [client_a_uuid]
-      if (profile.client_type === 'event_organizer' && Array.isArray(profile.events)) {
-        profile.events.forEach((ev) => { if (ev?.event_uuid) idsToDelete.push(ev.event_uuid) })
-      }
-      await pineconeDelete(pineconeHost, pineconeKey, idsToDelete)
-
-      for (const mergedPayload of payloads) {
-        const vectorId = mergedPayload.event_uuid || client_a_uuid
-        const text = buildSemanticText(mergedPayload)
-        const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-        })
-        if (!openaiRes.ok) {
-          const err = await openaiRes.text()
-          pineconeError = `OpenAI failed: ${err}`
-          console.error('[OpenAI]', pineconeError)
-          break
-        }
-        const openaiData = await openaiRes.json()
-        const embedding = openaiData?.data?.[0]?.embedding
-        if (!Array.isArray(embedding)) {
-          pineconeError = 'Invalid embedding from OpenAI'
-          break
-        }
-        const metadata = buildMetadataFromPayload(mergedPayload)
-        const pcUrl = `${pineconeHost.replace(/\/$/, '')}/vectors/upsert`
-        const pcRes = await fetch(pcUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Api-Key': pineconeKey,
-            'X-Pinecone-Api-Version': '2025-10',
-          },
-          body: JSON.stringify({
-            vectors: [{ id: vectorId, values: embedding, metadata }],
-          }),
-        })
-        if (!pcRes.ok) {
-          pineconeError = `Pinecone failed: ${await pcRes.text()}`
-          console.error('[Pinecone]', pineconeError)
-          break
-        }
-        pineconeOk = true
-        console.log('[Pinecone] Updated', mergedPayload.business_name, vectorId)
+    if (typeChoice === 'restaurant') {
+      const { error: branchError } = await supabase.rpc('set_restaurant_branches', {
+        p_client_uuid: client_a_uuid,
+        p_branch: pRestaurant?.branch || [],
+      })
+      if (branchError) {
+        return res.status(500).json({ error: branchError.message, supabaseOk: false })
       }
     }
+
+    if (skipPinecone) {
+      return res.json({ supabaseOk: true, pineconeOk: false, pineconeError: null })
+    }
+    const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
 
     return res.json({ supabaseOk: true, pineconeOk, pineconeError })
+  } catch (e) {
+    return res.status(500).json({ error: String(e), pineconeError: String(e) })
+  }
+})
+
+app.post('/api/create-event', async (req, res) => {
+  try {
+    const { client_a_uuid, event } = req.body
+    if (!client_a_uuid || !event) return res.status(400).json({ error: 'Missing client_a_uuid or event payload' })
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' })
+
+    const eventPayload = {
+      event_uuid: event.event_uuid || crypto.randomUUID(),
+      event_name: event.event_name?.trim() || '',
+      name: event.name?.trim() || event.event_name?.trim() || '',
+      status: event.status?.trim() || 'coming_soon',
+      venue: event.venue?.trim() || '',
+      image: String(event.image ?? '').trim() || null,
+      lat: String(event.lat ?? '').trim() || null,
+      long: String(event.long ?? '').trim() || null,
+      start_date: event.start_date?.trim() || '',
+      end_date: event.end_date?.trim() || '',
+      start_time: event.start_time?.trim() || '',
+      end_time: event.end_time?.trim() || '',
+      event_type: event.event_type?.trim() || '',
+      indoor_outdoor: event.indoor_outdoor || event.event_indoor_outdoor || '',
+    }
+
+    const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', { p_client_uuid: client_a_uuid })
+    if (fetchError || !fullProfile) return res.status(404).json({ error: 'Client profile not found' })
+    const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
+    if (profile.client_type !== 'event_organizer') {
+      return res.status(400).json({ error: 'Create event is allowed only for event organizer profiles' })
+    }
+
+    const { data: eventData, error: eventError } = await supabase.rpc('create_event_for_client', {
+      p_client_uuid: client_a_uuid,
+      p_event: eventPayload,
+    })
+    if (eventError) {
+      return res.status(500).json({ error: eventError.message, supabaseOk: false })
+    }
+
+    const tags = Array.isArray(profile.tags)
+      ? profile.tags
+      : (typeof profile.tags === 'string' ? profile.tags.split(',').map((t) => t.trim()).filter(Boolean) : [])
+    const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
+
+    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError })
+  } catch (e) {
+    return res.status(500).json({ error: String(e), pineconeError: String(e) })
+  }
+})
+
+app.put('/api/update-event', async (req, res) => {
+  try {
+    const { client_a_uuid, event_uuid, event } = req.body
+    if (!client_a_uuid || !event_uuid || !event) {
+      return res.status(400).json({ error: 'Missing client_a_uuid, event_uuid or event payload' })
+    }
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' })
+
+    const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', { p_client_uuid: client_a_uuid })
+    if (fetchError || !fullProfile) return res.status(404).json({ error: 'Client profile not found' })
+    const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
+    if (profile.client_type !== 'event_organizer') {
+      return res.status(400).json({ error: 'Update event is allowed only for event organizer profiles' })
+    }
+
+    const eventPayload = {
+      event_name: event.event_name?.trim() || '',
+      name: event.name?.trim() || event.event_name?.trim() || '',
+      status: event.status?.trim() || '',
+      venue: event.venue?.trim() || '',
+      image: String(event.image ?? '').trim() || null,
+      lat: String(event.lat ?? '').trim() || null,
+      long: String(event.long ?? '').trim() || null,
+      start_date: event.start_date?.trim() || '',
+      end_date: event.end_date?.trim() || '',
+      start_time: event.start_time?.trim() || '',
+      end_time: event.end_time?.trim() || '',
+      event_type: event.event_type?.trim() || '',
+      indoor_outdoor: event.indoor_outdoor || event.event_indoor_outdoor || '',
+    }
+
+    const { data: eventData, error: eventError } = await supabase.rpc('update_event_for_client', {
+      p_client_uuid: client_a_uuid,
+      p_event_uuid: event_uuid,
+      p_event: eventPayload,
+    })
+    if (eventError) {
+      return res.status(500).json({ error: eventError.message, supabaseOk: false })
+    }
+
+    const tags = Array.isArray(profile.tags)
+      ? profile.tags
+      : (typeof profile.tags === 'string' ? profile.tags.split(',').map((t) => t.trim()).filter(Boolean) : [])
+    const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
+
+    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError })
   } catch (e) {
     return res.status(500).json({ error: String(e), pineconeError: String(e) })
   }
@@ -514,5 +685,5 @@ app.get('/api/client/:id/pinecone-tags', async (req, res) => {
   }
 })
 
-const port = process.env.PORT || 3001
+const port = process.env.PORT || 3002
 app.listen(port, () => console.log(`Server on http://localhost:${port}`))

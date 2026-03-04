@@ -3,12 +3,13 @@ import { api } from '../config/api'
 /**
  * Update profile: backend updates Supabase, fetches full profile, upserts to Pinecone
  */
-export async function updateProfile(form, clientUuid) {
+export async function updateProfile(form, clientUuid, options = {}) {
+  const { skipPinecone = false } = options
   const base = api.backendUrl || (typeof location !== 'undefined' ? location.origin : '')
   const res = await fetch(`${base}/api/update-profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ form, client_a_uuid: clientUuid }),
+    body: JSON.stringify({ form, client_a_uuid: clientUuid, skipPinecone }),
   })
   const contentType = res.headers.get('content-type')
   if (!contentType?.includes('application/json')) {

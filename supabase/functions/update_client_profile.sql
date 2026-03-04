@@ -85,6 +85,7 @@ BEGIN
         name = COALESCE(NULLIF(TRIM(p_event->>'name'), ''), name),
         status = COALESCE(NULLIF(TRIM(p_event->>'status'), ''), status),
         venue = COALESCE(p_event->>'venue', venue),
+        image = COALESCE(NULLIF(TRIM(COALESCE(p_event->>'image','')), ''), image),
         lat = CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE lat END,
         "long" = CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE "long" END,
         start_date = CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE start_date END,
@@ -98,6 +99,7 @@ BEGIN
         name = COALESCE(NULLIF(TRIM(p_event->>'name'), ''), name),
         status = COALESCE(NULLIF(TRIM(p_event->>'status'), ''), status),
         venue = COALESCE(p_event->>'venue', venue),
+        image = COALESCE(NULLIF(TRIM(COALESCE(p_event->>'image','')), ''), image),
         lat = CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE lat END,
         "long" = CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE "long" END,
         start_date = CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE start_date END,
@@ -107,13 +109,14 @@ BEGIN
       WHERE client_a_uuid = client_uuid
       AND event_uuid = (SELECT event_uuid FROM public.events WHERE client_a_uuid = client_uuid LIMIT 1);
     ELSE
-      INSERT INTO public.events (client_a_uuid, event_name, name, status, venue, lat, "long", start_date, end_date, start_time, end_time)
+      INSERT INTO public.events (client_a_uuid, event_name, name, status, venue, image, lat, "long", start_date, end_date, start_time, end_time)
       VALUES (
         client_uuid,
         COALESCE(p_event->>'event_name', ''),
         COALESCE(p_event->>'name', p_event->>'event_name', ''),
         COALESCE(NULLIF(TRIM(p_event->>'status'), ''), 'coming_soon'),
         COALESCE(p_event->>'venue', ''),
+        NULLIF(TRIM(COALESCE(p_event->>'image','')), ''),
         CASE WHEN TRIM(COALESCE(p_event->>'lat','')) != '' THEN (TRIM(p_event->>'lat'))::numeric ELSE NULL END,
         CASE WHEN TRIM(COALESCE(p_event->>'long','')) != '' THEN (TRIM(p_event->>'long'))::numeric ELSE NULL END,
         CASE WHEN TRIM(COALESCE(p_event->>'start_date','')) != '' THEN (TRIM(p_event->>'start_date'))::date ELSE NULL END,

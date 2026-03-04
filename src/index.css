@@ -1,15 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
 
 :root {
-  --color-bg: #f8faf9;
+  --color-bg: #faf8f5;
   --color-surface: #ffffff;
-  --color-border: #e2e8e6;
-  --color-primary: #1a5f4a;
-  --color-primary-hover: #0d4032;
-  --color-text: #1a2e28;
-  --color-text-muted: #5a6e66;
-  --color-accent: #c9a227;
-  --font: 'Outfit', system-ui, sans-serif;
+  --color-surface-warm: #fef7ed;
+  --color-border: #e8e0d6;
+  --color-primary: #b8621b;
+  --color-primary-hover: #9c5117;
+  --color-primary-light: #fef3e2;
+  --color-secondary: #1a6b5a;
+  --color-secondary-hover: #145848;
+  --color-accent: #d4a853;
+  --color-accent-light: #fff8eb;
+  --color-text: #2d2419;
+  --color-text-muted: #7a6e5f;
+  --color-danger: #c53030;
+  --color-danger-hover: #9b2c2c;
+  --font-heading: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --shadow-sm: 0 1px 3px rgba(45, 36, 25, 0.06);
+  --shadow-md: 0 4px 16px rgba(45, 36, 25, 0.08);
+  --shadow-lg: 0 8px 30px rgba(45, 36, 25, 0.12);
+  --radius: 12px;
+  --radius-lg: 16px;
 }
 
 * {
@@ -19,8 +32,17 @@
 }
 
 body {
-  font-family: var(--font);
+  font-family: var(--font-body);
+  font-size: 1rem;
   background: var(--color-bg);
   color: var(--color-text);
   line-height: 1.6;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
 }

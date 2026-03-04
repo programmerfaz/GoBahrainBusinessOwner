@@ -5,6 +5,7 @@ import { api } from '../config/api'
  * Fetch all clients for an account (uses RPC to bypass RLS)
  */
 export async function getClientsByAccount(accountUuid) {
+  if (!supabase) return []
   const { data, error } = await supabase.rpc('get_clients_for_account', {
     p_account_uuid: accountUuid,
   })
@@ -28,6 +29,7 @@ export async function getClientsByAccount(accountUuid) {
  * Fetch a single client with full joined subtype (restaurant_client, place_client+place, event_organizer_client)
  */
 export async function getClientFull(clientUuid) {
+  if (!supabase) return null
   const { data, error } = await supabase.rpc('get_client_full', {
     p_client_uuid: clientUuid,
   })

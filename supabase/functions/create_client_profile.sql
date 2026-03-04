@@ -40,7 +40,8 @@ BEGIN
     client_image,
     lat,
     long,
-    timings
+    timings,
+    qrcode
   ) VALUES (
     client_uuid,
     (p_client->>'account_a_uuid')::uuid,
@@ -52,7 +53,8 @@ BEGIN
     NULLIF(p_client->>'client_image', ''),
     v_lat,
     v_long,
-    NULLIF(p_client->>'timings', '')
+    NULLIF(p_client->>'timings', ''),
+    client_uuid::text
   );
 
   IF p_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
