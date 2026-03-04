@@ -27,7 +27,7 @@ export default function SignUp() {
     try {
       const account = await signUp(form)
       login(account)
-      navigate('/profile')
+      navigate('/')
     } catch (err) {
       setError(err.message || 'Sign up failed')
     } finally {

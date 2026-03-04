@@ -5,9 +5,9 @@ import { useAuth } from '../context/AuthContext'
 import { getClientsByAccount, getClientFull, fetchTagsFromPinecone } from '../lib/clients'
 import { submitProfile } from '../lib/submitProfile'
 import { updateProfile } from '../lib/updateProfile'
-import { deleteProfile } from '../lib/deleteProfile'
 import { uploadProfileImage, uploadEventImage, ensureProfileImagesBucket, ensureEventImagesBucket } from '../lib/profileImages'
 import { api } from '../config/api'
+import MapPicker from '../components/MapPicker'
 
 const CLIENT_FIELDS = [
   { key: 'business_name', label: 'Business Name', type: 'text', required: true },
@@ -188,7 +188,6 @@ export default function Profile() {
   const [displayClient, setDisplayClient] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loadingClient, setLoadingClient] = useState(null)
-  const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState({ supabase: false, pinecone: false })
   const [pineconeError, setPineconeError] = useState('')
@@ -201,6 +200,8 @@ export default function Profile() {
   const [updatingHeaderImage, setUpdatingHeaderImage] = useState(false)
   const [branchResolvingIndex, setBranchResolvingIndex] = useState(null)
   const headerImageInputRef = useRef(null)
+  const clientImageInputRef = useRef(null)
+  const eventImageInputRef = useRef(null)
 
   useEffect(() => {
     if (!user?.account_uuid) return
@@ -281,8 +282,8 @@ export default function Profile() {
         lat = Number(position.coords.latitude).toFixed(6)
         lng = Number(position.coords.longitude).toFixed(6)
 
-        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`
-        const r = await fetch(revUrl)
+        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1&accept-language=en`
+        const r = await fetch(revUrl, { headers: { 'Accept-Language': 'en' } })
         const data = await r.json()
         const addr = data.address || {}
         area =
@@ -301,7 +302,9 @@ export default function Profile() {
           return
         }
         const q = encodeURIComponent(`${query}, Bahrain`)
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${q}`)
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${q}&accept-language=en`, {
+          headers: { 'Accept-Language': 'en' },
+        })
         const data = await r.json()
         const hit = Array.isArray(data) ? data[0] : null
         if (!hit) {
@@ -432,20 +435,6 @@ export default function Profile() {
     setForm(emptyForm())
   }
 
-  async function handleDelete(clientUuid) {
-    if (!window.confirm('Delete this profile? This will remove it from Supabase and Pinecone permanently.')) return
-    setDeletingId(clientUuid)
-    setError('')
-    try {
-      await deleteProfile(clientUuid)
-      setClients((prev) => prev.filter((c) => c.client_a_uuid !== clientUuid))
-    } catch (err) {
-      setError(err.message || 'Failed to delete profile')
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
   function handleCancelCreate() {
     setShowCreateForm(false)
     setForm(emptyForm())
@@ -540,388 +529,454 @@ export default function Profile() {
   const isEditing = !!editingClientId
 
   return (
-    <div className="page profile dashboard">
-      <section className="hero">
-        <h1>Profile</h1>
-        <p>{clients.length === 0 ? 'Create your business profile.' : 'Update your business profile.'}</p>
-      </section>
-
-      <section className="clients-section">
-        <div className="clients-section-header">
-          <h2>Your Profile</h2>
+    <div className="pf-page">
+      {/* ── Toasts ── */}
+      {error && <div className="pf-toast pf-toast-error">{error}</div>}
+      {(success.supabase || success.pinecone) && (
+        <div className="pf-toast pf-toast-success">
+          Profile saved successfully!
+          {pineconeError && <span className="pf-toast-sub"> (search index pending)</span>}
         </div>
+      )}
 
-        {loading && <p className="clients-loading">Loading clients...</p>}
-        {error && <div className="auth-error">{error}</div>}
-        {(success.supabase || success.pinecone) && (
-          <div className="auth-success">
-            {success.supabase && <p>Saved to Supabase successfully.</p>}
-            {success.pinecone && <p>Saved to Pinecone successfully.</p>}
-            {pineconeError && <p className="auth-warn">Pinecone: {pineconeError}</p>}
+      {/* ── Loading skeleton ── */}
+      {loading && clients.length === 0 && (
+        <div className="pf-skeleton-wrap">
+          <div className="pf-skeleton pf-skeleton-banner" />
+          <div className="pf-skeleton-body">
+            <div className="pf-skeleton pf-skeleton-avatar" />
+            <div className="pf-skeleton-lines">
+              <div className="pf-skeleton pf-skeleton-line w60" />
+              <div className="pf-skeleton pf-skeleton-line w40" />
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {!loading && !error && clients.length > 0 && !showCreateForm && !isEditing && (() => {
-          const c = displayClient || clients[0]
-          const name = c.business_name || c.name || 'Unnamed'
-          const typeLabel = (c.client_type || 'business').replace(/_/g, ' ')
-          const clientImageUrl = resolveClientImageUrl(c.client_image)
-          const tagsArr = Array.isArray(c.tags) ? c.tags : (c.tags && typeof c.tags === 'string') ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
-          return (
-            <div className="profile-view">
-              <div className="profile-view-cover">
-                <div className="profile-view-image-wrap">
-                  {clientImageUrl ? (
-                    <img src={clientImageUrl} alt={name} className="profile-view-image" />
-                  ) : (
-                    <div className="profile-view-image profile-view-image-placeholder">
-                      <span className="profile-view-image-initial">{name.charAt(0).toUpperCase()}</span>
-                    </div>
-                  )}
-                  <input
-                    ref={headerImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="profile-view-image-input"
-                    onChange={handleHeaderImageEdit}
-                  />
+      {/* ══════════════ PROFILE CARD (read-only view) ══════════════ */}
+      {!loading && clients.length > 0 && !showCreateForm && !isEditing && (() => {
+        const c = displayClient || clients[0]
+        const name = c.business_name || c.name || 'Unnamed'
+        const typeLabel = (c.client_type || 'business').replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+        const clientImageUrl = resolveClientImageUrl(c.client_image)
+        const tagsArr = Array.isArray(c.tags) ? c.tags : (c.tags && typeof c.tags === 'string') ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+        const initial = name.charAt(0).toUpperCase()
+
+        const stats = [
+          c.price_range && { icon: '💰', label: 'Price', value: c.price_range },
+          c.timings    && { icon: '🕐', label: 'Hours',  value: c.timings },
+          c.cuisine    && { icon: '🍽️', label: 'Cuisine', value: c.cuisine },
+          c.category   && { icon: '📍', label: 'Category', value: c.category },
+        ].filter(Boolean)
+
+        return (
+          <>
+            <div className="pf-card">
+              {/* Banner */}
+              <div className="pf-banner">
+                <div className="pf-banner-gradient" />
+                <div className="pf-banner-pattern" aria-hidden />
+              </div>
+
+              {/* Identity row */}
+              <div className="pf-identity">
+                <div className="pf-avatar-wrap">
+                  {clientImageUrl
+                    ? <img src={clientImageUrl} alt={name} className="pf-avatar" />
+                    : <div className="pf-avatar pf-avatar-init">{initial}</div>
+                  }
+                  <input ref={headerImageInputRef} type="file" accept="image/*" className="pf-hidden-input" onChange={handleHeaderImageEdit} />
                   <button
                     type="button"
-                    className="profile-view-image-edit"
+                    className="pf-avatar-edit"
                     onClick={() => headerImageInputRef.current?.click()}
                     disabled={updatingHeaderImage}
+                    title="Change photo"
+                    aria-label="Change photo"
                   >
-                    {updatingHeaderImage ? 'Updating...' : 'Edit photo'}
+                    {updatingHeaderImage
+                      ? <span className="pf-spinner" aria-hidden />
+                      : <CameraIcon size={14} />
+                    }
                   </button>
                 </div>
-                <h2 className="profile-view-name">{name}</h2>
-                <span className="profile-view-type-pill">{typeLabel}</span>
-              </div>
-              <div className="profile-view-body">
-                <div className="profile-view-content">
-                  {c.description && (
-                    <div className="profile-view-block">
-                      <h4 className="profile-view-label">About</h4>
-                      <p className="profile-view-description">{c.description}</p>
-                    </div>
-                  )}
-                  <div className="profile-view-details">
-                    {c.price_range && (
-                      <div className="profile-view-detail">
-                        <span className="profile-view-detail-label">Price range</span>
-                        <span className="profile-view-detail-value">{c.price_range}</span>
-                      </div>
-                    )}
-                    {c.timings && (
-                      <div className="profile-view-detail">
-                        <span className="profile-view-detail-label">Hours</span>
-                        <span className="profile-view-detail-value">{c.timings}</span>
-                      </div>
-                    )}
-                    {c.rating != null && c.rating !== '' && (
-                      <div className="profile-view-detail">
-                        <span className="profile-view-detail-label">Rating</span>
-                        <span className="profile-view-detail-value">{c.rating}</span>
-                      </div>
-                    )}
+
+                <div className="pf-identity-info">
+                  <div className="pf-name-row">
+                    <h1 className="pf-name">{name}</h1>
+                    <span className="pf-type-chip">{typeLabel}</span>
                   </div>
-                  {tagsArr.length > 0 && (
-                    <div className="profile-view-block">
-                      <h4 className="profile-view-label">Tags</h4>
-                      <div className="profile-view-tags">
-                        {tagsArr.map((tag, i) => (
-                          <span key={i} className="profile-view-tag">{tag}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {c.description && <p className="pf-tagline">{c.description}</p>}
                 </div>
-                <button
-                  type="button"
-                  className="profile-view-qr-inline"
-                  onClick={() => setExpandedQrClient(c)}
-                  title="Tap to expand QR code"
-                  aria-label={`Show QR code for ${name}`}
-                >
-                  <QRCodeSVG value={c.qrcode || c.client_a_uuid} size={140} level="M" />
-                  <span className="profile-view-qr-inline-label">Tap to expand</span>
-                </button>
-              </div>
-              <div className="profile-view-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => handleStartEdit(c.client_a_uuid)}
-                  disabled={loadingClient === c.client_a_uuid}
-                >
-                  {loadingClient === c.client_a_uuid ? 'Loading...' : 'Update profile'}
-                </button>
-                <Link to="/" className="btn btn-outline">
-                  Posts
-                </Link>
-                <button
-                  type="button"
-                  className="btn btn-danger-outline"
-                  onClick={() => handleDelete(c.client_a_uuid)}
-                  disabled={deletingId === c.client_a_uuid}
-                >
-                  {deletingId === c.client_a_uuid ? 'Deleting...' : 'Delete profile'}
-                </button>
-              </div>
-            </div>
-          )
-        })()}
 
-        {expandedQrClient && (
-          <div
-            className="qr-modal-backdrop"
-            onClick={() => setExpandedQrClient(null)}
-            role="presentation"
-          >
-            <div className="qr-modal-content" onClick={(e) => e.stopPropagation()}>
-              <h3 className="qr-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
-              <QRCodeSVG value={expandedQrClient.qrcode || expandedQrClient.client_a_uuid} size={220} level="M" className="qr-modal-svg" />
-              <p className="qr-modal-id">{expandedQrClient.qrcode || expandedQrClient.client_a_uuid}</p>
-              <button type="button" className="btn btn-sm btn-outline qr-modal-close" onClick={() => setExpandedQrClient(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(showCreateForm || isEditing || (clients.length === 0 && !loading)) && (
-          <form onSubmit={isEditing ? handleSubmitUpdate : handleSubmitCreate} className="profile-form">
-            {clients.length > 0 && (
-              <button
-                type="button"
-                className="back-link"
-                onClick={isEditing ? handleCancelEdit : handleCancelCreate}
-              >
-                ← Back to profile
-              </button>
-            )}
-            <h3>{isEditing ? 'Update Profile' : 'Create Profile'}</h3>
-            {CLIENT_FIELDS.map((f) => (
-              f.type === 'image_upload' ? (
-                <div key={f.key} className="form-group client-image-group">
-                  <span className="form-label">{f.label}</span>
-                  <p className="form-hint">Upload an image from your device. It will be stored in Supabase.</p>
-                  <div className="event-image-upload">
-                    <label className="file-upload-label">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleClientImageChange}
-                        disabled={uploadingClientImage}
-                        className="event-image-input"
-                      />
-                      <span className="file-upload-btn">{uploadingClientImage ? 'Uploading…' : 'Choose image from device'}</span>
-                    </label>
-                    {form.client_image ? (
-                      <div className="event-image-preview">
-                        <img src={form.client_image} alt="Profile" />
-                        <span className="event-image-url-note">Uploaded. Select another file to replace.</span>
-                      </div>
-                    ) : null}
-                  </div>
+                <div className="pf-identity-actions">
+                  <button
+                    type="button"
+                    className="pf-btn pf-btn-primary"
+                    onClick={() => handleStartEdit(c.client_a_uuid)}
+                    disabled={loadingClient === c.client_a_uuid}
+                  >
+                    {loadingClient === c.client_a_uuid
+                      ? <><span className="pf-spinner" aria-hidden /> Loading…</>
+                      : <>✏️ Edit Profile</>
+                    }
+                  </button>
+                  <Link to="/posts" className="pf-btn pf-btn-ghost">📋 My Posts</Link>
                 </div>
-              ) : (
-                <label key={f.key}>
-                  {f.label} {f.required && '*'}
-                  {f.type === 'textarea' ? (
-                    <textarea name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} rows={3} />
-                  ) : (
-                    <input type={f.type} name={f.key} value={form[f.key] ?? ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                  )}
-                </label>
-              )
-            ))}
+              </div>
 
-            <div className="form-group">
-              <span className="form-label">Type of Client</span>
-              <p className="client-type-readonly" aria-live="polite">
-                {form.client_type_choice === 'none' || !form.client_type_choice
-                  ? 'Client'
-                  : (form.client_type_choice || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-              </p>
-            </div>
-
-            {showRestaurantFields && (
-              <div className="restaurant-fields">
-                <h4>Restaurant Details</h4>
-                {RESTAURANT_FIELDS.map((f) => (
-                  <label key={f.key}>
-                    {f.label} {f.required && '*'}
-                    {f.type === 'checkbox' ? (
-                      <input type="checkbox" name={f.key} checked={form[f.key] || false} onChange={handleChange} />
-                    ) : (
-                      <input type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                    )}
-                  </label>
-                ))}
-                <div className="branch-section">
-                  <div className="branch-section-header">
-                    <h5>Branches</h5>
-                    <button type="button" className="btn btn-sm btn-outline" onClick={handleAddBranch}>
-                      Add Branch
-                    </button>
-                  </div>
-                  {(Array.isArray(form.branch) ? form.branch : []).length === 0 && (
-                    <p className="branch-empty">No branches added yet.</p>
-                  )}
-                  {(Array.isArray(form.branch) ? form.branch : []).map((b, index) => (
-                    <div key={index} className="branch-row">
-                      <label>
-                        Area name
-                        <input
-                          type="text"
-                          value={b.area_name || ''}
-                          onChange={(e) => handleBranchChange(index, 'area_name', e.target.value)}
-                          placeholder="e.g. Juffair, Manama"
-                        />
-                      </label>
-                      <label>
-                        Latitude
-                        <input
-                          type="text"
-                          value={b.lat || ''}
-                          onChange={(e) => handleBranchChange(index, 'lat', e.target.value)}
-                          placeholder="26.2285"
-                        />
-                      </label>
-                      <label>
-                        Longitude
-                        <input
-                          type="text"
-                          value={b.long || ''}
-                          onChange={(e) => handleBranchChange(index, 'long', e.target.value)}
-                          placeholder="50.5860"
-                        />
-                      </label>
-                      <div className="branch-row-actions">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline"
-                          onClick={() => handleResolveBranch(index)}
-                          disabled={branchResolvingIndex === index}
-                        >
-                          {branchResolvingIndex === index ? 'Locating...' : 'Auto Locate'}
-                        </button>
-                        <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveBranch(index)}>
-                          Remove
-                        </button>
+              {/* Stats strip */}
+              {stats.length > 0 && (
+                <div className="pf-stats">
+                  {stats.map((s, i) => (
+                    <div key={i} className="pf-stat">
+                      <span className="pf-stat-icon">{s.icon}</span>
+                      <div>
+                        <span className="pf-stat-label">{s.label}</span>
+                        <span className="pf-stat-value">{s.value}</span>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {showPlaceFields && (
-              <div className="place-fields">
-                <h4>Place Client Details</h4>
-                {PLACE_CLIENT_FIELDS.map((f) => (
-                  <label key={f.key}>
-                    {f.label} {f.required && '*'}
-                    {f.type === 'select' ? (
-                      <select name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
-                        {f.options.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                    )}
-                  </label>
-                ))}
-                <h4>Place Details</h4>
-                {PLACE_FIELDS.map((f) => (
-                  <label key={f.key}>
-                    {f.label} {f.required && '*'}
-                    {f.type === 'textarea' ? (
-                      <textarea name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} rows={3} />
-                    ) : f.type === 'time' ? (
-                      <input type="time" name={f.key} value={form[f.key] || ''} onChange={handleChange} />
-                    ) : (
-                      <input type={f.type || 'text'} name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                    )}
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {showEventOrganizerFields && (
-              <div className="event-organizer-fields">
-                <h4>Event Organizer Details</h4>
-                {EVENT_ORGANIZER_FIELDS.map((f) => (
-                  <label key={f.key}>
-                    {f.label} {f.required && '*'}
-                    {f.type === 'select' ? (
-                      <select name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
-                        {f.options.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                    )}
-                  </label>
-                ))}
-                <h4>Event Details</h4>
-                <div className="form-group event-image-group">
-                  <span className="form-label">Event Image</span>
-                  <p className="form-hint">Upload an image from your device. It will be stored in Supabase.</p>
-                  <div className="event-image-upload">
-                    <label className="file-upload-label">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleEventImageChange}
-                        disabled={uploadingImage}
-                        className="event-image-input"
-                      />
-                      <span className="file-upload-btn">{uploadingImage ? 'Uploading…' : 'Choose image from device'}</span>
-                    </label>
-                    {form.image ? (
-                      <div className="event-image-preview">
-                        <img src={form.image} alt="Event" />
-                        <span className="event-image-url-note">Uploaded. Select another file to replace.</span>
+              {/* Body: tags + QR */}
+              <div className="pf-body">
+                <div className="pf-body-left">
+                  {tagsArr.length > 0 && (
+                    <div className="pf-section">
+                      <span className="pf-section-label">Tags</span>
+                      <div className="pf-tags">
+                        {tagsArr.map((tag, i) => <span key={i} className="pf-tag">{tag}</span>)}
                       </div>
-                    ) : null}
+                    </div>
+                  )}
+                </div>
+                <div className="pf-qr-block" onClick={() => setExpandedQrClient(c)} role="button" tabIndex={0} aria-label="Expand QR code" onKeyDown={(e) => e.key === 'Enter' && setExpandedQrClient(c)}>
+                  <QRCodeSVG value={c.qrcode || c.client_a_uuid} size={110} level="M" />
+                  <span className="pf-qr-hint">Tap to expand</span>
+                </div>
+              </div>
+            </div>
+
+            {/* QR modal */}
+            {expandedQrClient && (
+              <div className="pf-modal-backdrop" onClick={() => setExpandedQrClient(null)} role="presentation">
+                <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                  <QRCodeSVG value={expandedQrClient.qrcode || expandedQrClient.client_a_uuid} size={240} level="M" />
+                  <p className="pf-modal-id">{expandedQrClient.qrcode || expandedQrClient.client_a_uuid}</p>
+                  <button type="button" className="pf-btn pf-btn-ghost" onClick={() => setExpandedQrClient(null)}>Close</button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      })()}
+
+      {/* ══════════════ EDIT / CREATE FORM ══════════════ */}
+      {(showCreateForm || isEditing || (clients.length === 0 && !loading)) && (
+        <form onSubmit={isEditing ? handleSubmitUpdate : handleSubmitCreate} className="pf-form">
+
+          {/* Form header */}
+          <div className="pf-form-header">
+            {clients.length > 0 && (
+              <button type="button" className="pf-back" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
+                ← Back
+              </button>
+            )}
+            <div>
+              <h2 className="pf-form-title">{isEditing ? 'Update Profile' : 'Create your profile'}</h2>
+              <p className="pf-form-sub">Fill in your business details below.</p>
+            </div>
+            {form.client_type_choice && form.client_type_choice !== 'none' && (
+              <span className="pf-type-chip pf-type-chip-sm">
+                {(form.client_type_choice).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+              </span>
+            )}
+          </div>
+
+          <div className="pf-form-layout">
+            {/* ── Left: photo widget ── */}
+            <div className="pf-form-photo-col">
+              <div
+                className="pf-photo-widget"
+                role="button"
+                tabIndex={0}
+                onClick={() => !uploadingClientImage && clientImageInputRef.current?.click()}
+                onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !uploadingClientImage) { e.preventDefault(); clientImageInputRef.current?.click() } }}
+                aria-label="Upload business photo"
+              >
+                <input ref={clientImageInputRef} type="file" accept="image/*" onChange={handleClientImageChange} disabled={uploadingClientImage} className="pf-hidden-input" aria-hidden />
+                {form.client_image ? (
+                  <>
+                    <img src={form.client_image} alt="Profile" className="pf-photo-img" />
+                    <div className="pf-photo-overlay">
+                      {uploadingClientImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={20} /><span>Change photo</span></>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="pf-photo-empty">
+                    <CameraIcon size={36} />
+                    <span className="pf-photo-empty-title">{uploadingClientImage ? 'Uploading…' : 'Add logo / photo'}</span>
+                    <span className="pf-photo-empty-hint">Click to upload</span>
+                  </div>
+                )}
+              </div>
+              <p className="pf-photo-tip">JPG, PNG or WebP · Max 5 MB</p>
+            </div>
+
+            {/* ── Right: fields ── */}
+            <div className="pf-form-fields-col">
+
+              {/* Core info section */}
+              <div className="pf-section-block">
+                <div className="pf-section-head">
+                  <span className="pf-section-head-icon">🏢</span>
+                  <span className="pf-section-head-label">Business Info</span>
+                </div>
+                <div className="pf-grid">
+                  <div className="pf-field pf-field-full">
+                    <label className="pf-label" htmlFor="f-business_name">Business Name <span className="pf-required">*</span></label>
+                    <input id="f-business_name" className="pf-input" type="text" name="business_name" value={form.business_name || ''} onChange={handleChange} placeholder="Your business name" required />
+                  </div>
+                  <div className="pf-field pf-field-full">
+                    <label className="pf-label" htmlFor="f-description">Description</label>
+                    <textarea id="f-description" className="pf-input pf-textarea" name="description" value={form.description || ''} onChange={handleChange} placeholder="What makes your business special?" rows={3} />
+                  </div>
+                  <div className="pf-field">
+                    <label className="pf-label" htmlFor="f-price_range">Price Range</label>
+                    <input id="f-price_range" className="pf-input" type="text" name="price_range" value={form.price_range || ''} onChange={handleChange} placeholder="e.g. 3–8 BHD" />
+                  </div>
+                  <div className="pf-field">
+                    <label className="pf-label" htmlFor="f-timings">Opening Hours</label>
+                    <input id="f-timings" className="pf-input" type="text" name="timings" value={form.timings || ''} onChange={handleChange} placeholder="e.g. 10AM–11PM" />
+                  </div>
+                  <div className="pf-field">
+                    <label className="pf-label" htmlFor="f-tags">Tags</label>
+                    <input id="f-tags" className="pf-input" type="text" name="tags" value={form.tags || ''} onChange={handleChange} placeholder="pizza, italian, casual" />
                   </div>
                 </div>
-                {EVENT_FIELDS.filter((f) => f.type !== 'image').map((f) => (
-                  <label key={f.key}>
-                    {f.label} {f.required && '*'}
-                    {f.type === 'select' ? (
-                      <select name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
-                        {f.options?.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    ) : f.type === 'date' ? (
-                      <input type="date" name={f.key} value={form[f.key] || ''} onChange={handleChange} />
-                    ) : f.type === 'time' ? (
-                      <input type="time" name={f.key} value={form[f.key] || ''} onChange={handleChange} />
-                    ) : (
-                      <input type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                    )}
-                  </label>
-                ))}
               </div>
-            )}
 
-            <div className="form-actions">
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? 'Saving...' : (isEditing ? 'Update' : 'Create')}
-              </button>
-              <button type="button" className="btn btn-outline" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
-                Cancel
-              </button>
+              {/* Location section */}
+              <div className="pf-section-block">
+                <div className="pf-section-head">
+                  <span className="pf-section-head-icon">📍</span>
+                  <span className="pf-section-head-label">Location</span>
+                </div>
+                <MapPicker
+                  lat={form.lat}
+                  lng={form.long}
+                  onChange={(lat, lng) => setForm((prev) => ({ ...prev, lat, long: lng }))}
+                />
+                <div className="pf-grid" style={{ marginTop: '0.75rem' }}>
+                  <div className="pf-field">
+                    <label className="pf-label" htmlFor="f-lat">Latitude</label>
+                    <input id="f-lat" className="pf-input" type="text" name="lat" value={form.lat || ''} onChange={handleChange} placeholder="26.2285" readOnly />
+                  </div>
+                  <div className="pf-field">
+                    <label className="pf-label" htmlFor="f-long">Longitude</label>
+                    <input id="f-long" className="pf-input" type="text" name="long" value={form.long || ''} onChange={handleChange} placeholder="50.5860" readOnly />
+                  </div>
+                </div>
+                {showRestaurantFields && (
+                  <>
+                    <div className="pf-location-add-branch">
+                      <button type="button" className="pf-btn pf-btn-sm pf-btn-ghost" onClick={handleAddBranch}>+ Add Branch</button>
+                    </div>
+                    {(Array.isArray(form.branch) ? form.branch : []).length === 0 ? null : (
+                      <div className="pf-branches">
+                        {(Array.isArray(form.branch) ? form.branch : []).map((b, index) => (
+                          <div key={index} className="pf-branch-card">
+                            <div className="pf-grid" style={{ marginBottom: '0.75rem' }}>
+                              <div className="pf-field pf-field-full">
+                                <label className="pf-label">Area name</label>
+                                <input className="pf-input" type="text" value={b.area_name || ''} onChange={(e) => handleBranchChange(index, 'area_name', e.target.value)} placeholder="e.g. Juffair, Manama" />
+                              </div>
+                            </div>
+                            <MapPicker
+                              lat={b.lat}
+                              lng={b.long}
+                              height="260px"
+                              onChange={(lat, lng, areaName) => {
+                                handleBranchChange(index, 'lat', lat)
+                                handleBranchChange(index, 'long', lng)
+                                if (areaName && !b.area_name) handleBranchChange(index, 'area_name', areaName)
+                              }}
+                            />
+                            <div className="pf-grid" style={{ marginTop: '0.75rem' }}>
+                              <div className="pf-field">
+                                <label className="pf-label">Latitude</label>
+                                <input className="pf-input" type="text" value={b.lat || ''} onChange={(e) => handleBranchChange(index, 'lat', e.target.value)} placeholder="26.2285" readOnly />
+                              </div>
+                              <div className="pf-field">
+                                <label className="pf-label">Longitude</label>
+                                <input className="pf-input" type="text" value={b.long || ''} onChange={(e) => handleBranchChange(index, 'long', e.target.value)} placeholder="50.5860" readOnly />
+                              </div>
+                            </div>
+                            <div className="pf-branch-actions">
+                              <button type="button" className="pf-btn pf-btn-sm pf-btn-ghost" onClick={() => handleResolveBranch(index)} disabled={branchResolvingIndex === index}>
+                                {branchResolvingIndex === index ? 'Locating…' : 'Auto Locate'}
+                              </button>
+                              <button type="button" className="pf-btn pf-btn-sm pf-btn-danger" onClick={() => handleRemoveBranch(index)}>Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Restaurant-specific */}
+              {showRestaurantFields && (
+                <div className="pf-section-block">
+                  <div className="pf-section-head">
+                    <span className="pf-section-head-icon">🍽️</span>
+                    <span className="pf-section-head-label">Restaurant Details</span>
+                  </div>
+                  <div className="pf-grid">
+                    {RESTAURANT_FIELDS.filter(f => f.type !== 'checkbox').map((f) => (
+                      <div key={f.key} className="pf-field">
+                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                        <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                      </div>
+                    ))}
+                    <div className="pf-field pf-field-checkbox">
+                      <label className="pf-checkbox-label">
+                        <input type="checkbox" name="isfoodtruck" checked={form.isfoodtruck || false} onChange={handleChange} className="pf-checkbox" />
+                        <span>This is a food truck</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Place-specific */}
+              {showPlaceFields && (
+                <div className="pf-section-block">
+                  <div className="pf-section-head">
+                    <span className="pf-section-head-icon">🗺️</span>
+                    <span className="pf-section-head-label">Place Details</span>
+                  </div>
+                  <div className="pf-grid">
+                    {PLACE_CLIENT_FIELDS.map((f) => (
+                      <div key={f.key} className="pf-field">
+                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                        {f.type === 'select'
+                          ? <select id={`f-${f.key}`} className="pf-input" name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
+                              {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          : <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                        }
+                      </div>
+                    ))}
+                    {PLACE_FIELDS.map((f) => (
+                      <div key={f.key} className={`pf-field${f.type === 'textarea' ? ' pf-field-full' : ''}`}>
+                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                        {f.type === 'textarea'
+                          ? <textarea id={`f-${f.key}`} className="pf-input pf-textarea" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} rows={3} />
+                          : <input id={`f-${f.key}`} className="pf-input" type={f.type || 'text'} name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                        }
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Event-organizer-specific */}
+              {showEventOrganizerFields && (
+                <div className="pf-section-block">
+                  <div className="pf-section-head">
+                    <span className="pf-section-head-icon">🎪</span>
+                    <span className="pf-section-head-label">Event Organizer Details</span>
+                  </div>
+                  <div className="pf-grid">
+                    {EVENT_ORGANIZER_FIELDS.map((f) => (
+                      <div key={f.key} className="pf-field">
+                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                        {f.type === 'select'
+                          ? <select id={`f-${f.key}`} className="pf-input" name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
+                              {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          : <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                        }
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pf-section-head" style={{ marginTop: '1.5rem' }}>
+                    <span className="pf-section-head-icon">📅</span>
+                    <span className="pf-section-head-label">Event Details</span>
+                  </div>
+                  {/* Event image */}
+                  <div className="pf-event-image-row">
+                    <div
+                      className="pf-event-photo-widget"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => !uploadingImage && eventImageInputRef.current?.click()}
+                      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !uploadingImage) { e.preventDefault(); eventImageInputRef.current?.click() } }}
+                      aria-label="Upload event image"
+                    >
+                      <input ref={eventImageInputRef} type="file" accept="image/*" onChange={handleEventImageChange} disabled={uploadingImage} className="pf-hidden-input" aria-hidden />
+                      {form.image ? (
+                        <>
+                          <img src={form.image} alt="Event" className="pf-photo-img" />
+                          <div className="pf-photo-overlay">
+                            {uploadingImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={16} /><span>Change</span></>}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="pf-photo-empty">
+                          <CameraIcon size={24} />
+                          <span className="pf-photo-empty-title">{uploadingImage ? 'Uploading…' : 'Event image'}</span>
+                          <span className="pf-photo-empty-hint">Click to upload</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pf-grid pf-event-fields">
+                      {EVENT_FIELDS.filter((f) => f.type !== 'image').map((f) => (
+                        <div key={f.key} className={`pf-field${f.type === 'textarea' ? ' pf-field-full' : ''}`}>
+                          <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                          {f.type === 'select'
+                            ? <select id={`f-${f.key}`} className="pf-input" name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
+                                {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                            : <input id={`f-${f.key}`} className="pf-input" type={f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : 'text'} name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="pf-form-footer">
+                <button type="submit" className="pf-btn pf-btn-primary pf-btn-lg" disabled={loading}>
+                  {loading ? <><span className="pf-spinner" aria-hidden /> Saving…</> : (isEditing ? '✓ Save changes' : '✓ Create profile')}
+                </button>
+                {clients.length > 0 && (
+                  <button type="button" className="pf-btn pf-btn-ghost" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
-          </form>
-        )}
-      </section>
+          </div>
+        </form>
+      )}
     </div>
+  )
+}
+
+function CameraIcon({ size = 24 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
   )
 }

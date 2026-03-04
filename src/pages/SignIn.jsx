@@ -18,7 +18,7 @@ export default function SignIn() {
     try {
       const account = await signIn(email, password)
       login(account)
-      navigate('/profile')
+      navigate('/')
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {
