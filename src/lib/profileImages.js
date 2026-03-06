@@ -3,6 +3,14 @@ import { supabase } from './supabase'
 const PROFILE_BUCKET = 'gobahrain-profile-images'
 const EVENT_IMAGES_BUCKET = 'event-images'
 
+function toUploadError(error) {
+  const message = String(error?.message || '')
+  if (/row-level security|violates row-level security policy/i.test(message)) {
+    return new Error(`Image upload failed due to storage permissions. (${message})`)
+  }
+  return new Error(message || 'Image upload failed')
+}
+
 /**
  * Ensure the profile images bucket exists. Create manually if needed: Storage → New bucket → gobahrain-profile-images (Public: ON)
  */
@@ -38,11 +46,14 @@ export async function ensureEventImagesBucket() {
 export async function uploadEventImage(file, accountUuid) {
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, 'jpg')
   const path = `${accountUuid}/${crypto.randomUUID()}.${ext}`
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for image upload.')
+  }
   const { error } = await supabase.storage.from(EVENT_IMAGES_BUCKET).upload(path, file, {
     cacheControl: '3600',
     upsert: false,
   })
-  if (error) throw error
+  if (error) throw toUploadError(error)
   const { data } = supabase.storage.from(EVENT_IMAGES_BUCKET).getPublicUrl(path)
   return data.publicUrl
 }
@@ -56,11 +67,14 @@ export async function uploadEventImage(file, accountUuid) {
 export async function uploadProfileImage(file, accountUuid) {
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, 'jpg')
   const path = `profiles/${accountUuid}/${crypto.randomUUID()}.${ext}`
+  if (!supabase) {
+    throw new Error('Supabase client is not configured for image upload.')
+  }
   const { error } = await supabase.storage.from(PROFILE_BUCKET).upload(path, file, {
     cacheControl: '3600',
     upsert: false,
   })
-  if (error) throw error
+  if (error) throw toUploadError(error)
   const { data } = supabase.storage.from(PROFILE_BUCKET).getPublicUrl(path)
   return data.publicUrl
 }

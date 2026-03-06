@@ -8,6 +8,7 @@ import { updateProfile } from '../lib/updateProfile'
 import { uploadProfileImage, uploadEventImage, ensureProfileImagesBucket, ensureEventImagesBucket } from '../lib/profileImages'
 import { api } from '../config/api'
 import MapPicker from '../components/MapPicker'
+import OwnerLocationPicker from '../components/OwnerLocationPicker'
 
 const CLIENT_FIELDS = [
   { key: 'business_name', label: 'Business Name', type: 'text', required: true },
@@ -33,6 +34,129 @@ const emptyBranch = () => ({
   lat: '',
   long: '',
 })
+
+const PRICE_PRESETS = [
+  { label: 'Budget', value: '1-3 BHD' },
+  { label: 'Mid', value: '3-7 BHD' },
+  { label: 'Premium', value: '8-20 BHD' },
+  { label: 'Luxury', value: '20+ BHD' },
+]
+
+const DEFAULT_HOURS = { open: '10:00', close: '22:00', is24: false }
+const TAG_OPTIONS = [
+  'sightseeing',
+  'instagram',
+  'leisure',
+  'nature',
+  'historical',
+  'cultural',
+  'adventure',
+  'family-friendly',
+]
+const CUISINE_OPTIONS = [
+  'Arabic / Middle Eastern',
+  'Indian',
+  'American',
+  'Italian',
+  'Chinese',
+  'Japanese',
+  'Thai',
+  'Turkish',
+  'Lebanese',
+  'Filipino',
+]
+const MEAL_TYPE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+const FOOD_TYPE_OPTIONS = [
+  'Non-Vegetarian',
+  'Vegetarian',
+  'Vegan',
+  'Seafood',
+  'BBQ / Grilled',
+  'Fast Food',
+  'Healthy Food',
+  'Street Food',
+  'Desserts / Sweets',
+  'Cafe / Bakery',
+]
+
+function normalizePriceRangeText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/–/g, '-')
+    .toLowerCase()
+}
+
+function parseTags(value) {
+  return String(value || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => t.replace(/^#/, ''))
+    .filter(Boolean)
+}
+
+function formatAllowedTags(value) {
+  const optionMap = new Map(TAG_OPTIONS.map((t) => [t.toLowerCase(), t]))
+  const seen = new Set()
+  const normalized = []
+  for (const tag of parseTags(value)) {
+    const key = String(tag || '').toLowerCase()
+    const allowed = optionMap.get(key)
+    if (!allowed || seen.has(key)) continue
+    seen.add(key)
+    normalized.push(allowed)
+  }
+  return normalized.join(', ')
+}
+
+function parseCommaList(value) {
+  const seen = new Set()
+  const out = []
+  for (const item of String(value || '').split(',')) {
+    const normalized = String(item || '').trim()
+    if (!normalized) continue
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(normalized)
+  }
+  return out
+}
+
+function toTwo(n) {
+  return String(n).padStart(2, '0')
+}
+
+function to24Hour(h, m = '00', period = 'am') {
+  let hour = Number(h)
+  if (!Number.isFinite(hour)) return null
+  const p = String(period || '').toLowerCase()
+  if (p === 'pm' && hour < 12) hour += 12
+  if (p === 'am' && hour === 12) hour = 0
+  return `${toTwo(hour)}:${toTwo(Number(m) || 0)}`
+}
+
+function parseTimings(value) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  if (/24\s*hours?/i.test(text)) {
+    return { ...DEFAULT_HOURS, is24: true }
+  }
+  const m24 = text.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/)
+  if (m24) return { open: m24[1], close: m24[2], is24: false }
+  const m12 = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*[-–]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i)
+  if (m12) {
+    const open = to24Hour(m12[1], m12[2] || '00', m12[3])
+    const close = to24Hour(m12[4], m12[5] || '00', m12[6])
+    if (open && close) return { open, close, is24: false }
+  }
+  return null
+}
+
+function timingsText(hours) {
+  return hours.is24 ? '24 Hours' : `${hours.open} - ${hours.close}`
+}
 
 const PLACE_CLIENT_FIELDS = [
   { key: 'category', label: 'Category', type: 'text', required: true, placeholder: 'e.g. nature, cultural, leisure' },
@@ -85,6 +209,7 @@ const emptyForm = () => ({
   ...Object.fromEntries(CLIENT_FIELDS.map((f) => [f.key, ''])),
   rating: '',
   client_type_choice: '',
+  lng: '',
   ...Object.fromEntries(RESTAURANT_FIELDS.map((f) => [f.key, f.type === 'checkbox' ? false : ''])),
   branch: [],
   ...Object.fromEntries(PLACE_CLIENT_FIELDS.filter((f) => f.type !== 'select').map((f) => [f.key, ''])),
@@ -103,6 +228,7 @@ function profileToForm(p) {
     if (key === 'tags') return
     f[key] = v != null ? String(v) : ''
   })
+  f.lng = p.lng != null ? String(p.lng) : (p.long != null ? String(p.long) : '')
   f.rating = p.rating != null ? String(p.rating) : ''
   f.client_type_choice = p.client_type === 'client' ? 'none' : (p.client_type || '')
   if (p.client_type === 'restaurant') {
@@ -196,12 +322,32 @@ export default function Profile() {
   const [form, setForm] = useState(emptyForm())
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingClientImage, setUploadingClientImage] = useState(false)
+  const [clientImagePreview, setClientImagePreview] = useState('')
+  const [eventImagePreview, setEventImagePreview] = useState('')
+  const [pendingClientImageFile, setPendingClientImageFile] = useState(null)
+  const [pendingEventImageFile, setPendingEventImageFile] = useState(null)
+  const [hours, setHours] = useState(DEFAULT_HOURS)
+  const [tagDraft, setTagDraft] = useState('')
+  const [cuisineDraft, setCuisineDraft] = useState('')
+  const [mealTypeDraft, setMealTypeDraft] = useState('')
+  const [foodTypeDraft, setFoodTypeDraft] = useState('')
   const [expandedQrClient, setExpandedQrClient] = useState(null)
   const [updatingHeaderImage, setUpdatingHeaderImage] = useState(false)
-  const [branchResolvingIndex, setBranchResolvingIndex] = useState(null)
   const headerImageInputRef = useRef(null)
   const clientImageInputRef = useRef(null)
   const eventImageInputRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (clientImagePreview?.startsWith('blob:')) URL.revokeObjectURL(clientImagePreview)
+    }
+  }, [clientImagePreview])
+
+  useEffect(() => {
+    return () => {
+      if (eventImagePreview?.startsWith('blob:')) URL.revokeObjectURL(eventImagePreview)
+    }
+  }, [eventImagePreview])
 
   useEffect(() => {
     if (!user?.account_uuid) return
@@ -247,6 +393,222 @@ export default function Profile() {
     })
   }
 
+  function handlePricePreset(value) {
+    setForm((prev) => ({
+      ...prev,
+      price_range: value,
+    }))
+  }
+
+  function isPresetActive(value) {
+    return normalizePriceRangeText(form.price_range) === normalizePriceRangeText(value)
+  }
+
+  function toggleTagOption(tag) {
+    const selected = parseTags(formatAllowedTags(form.tags))
+    const key = String(tag || '').toLowerCase()
+    const exists = selected.some((t) => t.toLowerCase() === key)
+    const next = exists
+      ? selected.filter((t) => t.toLowerCase() !== key)
+      : [...selected, tag]
+    setForm((prev) => ({ ...prev, tags: next.join(', ') }))
+  }
+
+  function isTagSelected(tag) {
+    const selected = parseTags(formatAllowedTags(form.tags))
+    return selected.some((t) => t.toLowerCase() === String(tag || '').toLowerCase())
+  }
+
+  function addRestaurantTag(raw) {
+    const nextTag = String(raw || '').trim().replace(/^#/, '').replace(/\s+/g, '')
+    if (!nextTag) return
+    const existing = parseTags(form.tags)
+    if (existing.some((t) => t.toLowerCase() === nextTag.toLowerCase())) return
+    setForm((prev) => ({ ...prev, tags: [...existing, nextTag].join(', ') }))
+  }
+
+  function removeRestaurantTag(tagToRemove) {
+    const next = parseTags(form.tags).filter((t) => t.toLowerCase() !== String(tagToRemove).toLowerCase())
+    setForm((prev) => ({ ...prev, tags: next.join(', ') }))
+  }
+
+  function handleRestaurantTagKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+      e.preventDefault()
+      if (!tagDraft.trim()) return
+      addRestaurantTag(tagDraft)
+      setTagDraft('')
+    }
+    if (e.key === 'Backspace' && !tagDraft.trim()) {
+      const existing = parseTags(form.tags)
+      const last = existing[existing.length - 1]
+      if (last) removeRestaurantTag(last)
+    }
+  }
+
+  function isCuisineSelected(value) {
+    const selected = parseCommaList(form.cuisine)
+    return selected.some((x) => x.toLowerCase() === String(value || '').toLowerCase())
+  }
+
+  function setCuisineList(nextList) {
+    setForm((prev) => ({ ...prev, cuisine: nextList.join(', ') }))
+  }
+
+  function toggleCuisineOption(value) {
+    const selected = parseCommaList(form.cuisine)
+    const key = String(value || '').toLowerCase()
+    const exists = selected.some((x) => x.toLowerCase() === key)
+    const next = exists
+      ? selected.filter((x) => x.toLowerCase() !== key)
+      : [...selected, value]
+    setCuisineList(next)
+  }
+
+  function removeCuisine(value) {
+    const key = String(value || '').toLowerCase()
+    const next = parseCommaList(form.cuisine).filter((x) => x.toLowerCase() !== key)
+    setCuisineList(next)
+  }
+
+  function addManualCuisine(raw) {
+    const manual = String(raw || '').trim()
+    if (!manual) return
+    const selected = parseCommaList(form.cuisine)
+    if (selected.some((x) => x.toLowerCase() === manual.toLowerCase())) return
+    setCuisineList([...selected, manual])
+  }
+
+  function handleCuisineDraftKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      if (!cuisineDraft.trim()) return
+      addManualCuisine(cuisineDraft)
+      setCuisineDraft('')
+    }
+  }
+
+  function isMealTypeSelected(value) {
+    const selected = parseCommaList(form.meal_type)
+    return selected.some((x) => x.toLowerCase() === String(value || '').toLowerCase())
+  }
+
+  function setMealTypeList(nextList) {
+    setForm((prev) => ({ ...prev, meal_type: nextList.join(', ') }))
+  }
+
+  function toggleMealTypeOption(value) {
+    const selected = parseCommaList(form.meal_type)
+    const key = String(value || '').toLowerCase()
+    const exists = selected.some((x) => x.toLowerCase() === key)
+    const next = exists
+      ? selected.filter((x) => x.toLowerCase() !== key)
+      : [...selected, value]
+    setMealTypeList(next)
+  }
+
+  function removeMealType(value) {
+    const key = String(value || '').toLowerCase()
+    const next = parseCommaList(form.meal_type).filter((x) => x.toLowerCase() !== key)
+    setMealTypeList(next)
+  }
+
+  function addManualMealType(raw) {
+    const manual = String(raw || '').trim()
+    if (!manual) return
+    const selected = parseCommaList(form.meal_type)
+    if (selected.some((x) => x.toLowerCase() === manual.toLowerCase())) return
+    setMealTypeList([...selected, manual])
+  }
+
+  function handleMealTypeDraftKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      if (!mealTypeDraft.trim()) return
+      addManualMealType(mealTypeDraft)
+      setMealTypeDraft('')
+    }
+  }
+
+  function isFoodTypeSelected(value) {
+    const selected = parseCommaList(form.food_type)
+    return selected.some((x) => x.toLowerCase() === String(value || '').toLowerCase())
+  }
+
+  function setFoodTypeList(nextList) {
+    setForm((prev) => ({ ...prev, food_type: nextList.join(', ') }))
+  }
+
+  function toggleFoodTypeOption(value) {
+    const selected = parseCommaList(form.food_type)
+    const key = String(value || '').toLowerCase()
+    const exists = selected.some((x) => x.toLowerCase() === key)
+    const next = exists
+      ? selected.filter((x) => x.toLowerCase() !== key)
+      : [...selected, value]
+    setFoodTypeList(next)
+  }
+
+  function removeFoodType(value) {
+    const key = String(value || '').toLowerCase()
+    const next = parseCommaList(form.food_type).filter((x) => x.toLowerCase() !== key)
+    setFoodTypeList(next)
+  }
+
+  function addManualFoodType(raw) {
+    const manual = String(raw || '').trim()
+    if (!manual) return
+    const selected = parseCommaList(form.food_type)
+    if (selected.some((x) => x.toLowerCase() === manual.toLowerCase())) return
+    setFoodTypeList([...selected, manual])
+  }
+
+  function handleFoodTypeDraftKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      if (!foodTypeDraft.trim()) return
+      addManualFoodType(foodTypeDraft)
+      setFoodTypeDraft('')
+    }
+  }
+
+  useEffect(() => {
+    const parsed = parseTimings(form.timings)
+    if (!parsed) return
+    setHours((prev) => (
+      prev.open === parsed.open && prev.close === parsed.close && prev.is24 === parsed.is24
+        ? prev
+        : parsed
+    ))
+  }, [form.timings])
+
+  function handleHours24Toggle(e) {
+    const checked = !!e.target.checked
+    setHours((prev) => {
+      const next = { ...prev, is24: checked }
+      setForm((f) => ({ ...f, timings: timingsText(next) }))
+      return next
+    })
+  }
+
+  function handleOpenTimeChange(e) {
+    const open = e.target.value
+    setHours((prev) => {
+      const next = { ...prev, open }
+      setForm((f) => ({ ...f, timings: timingsText(next) }))
+      return next
+    })
+  }
+
+  function handleCloseTimeChange(e) {
+    const close = e.target.value
+    setHours((prev) => {
+      const next = { ...prev, close }
+      setForm((f) => ({ ...f, timings: timingsText(next) }))
+      return next
+    })
+  }
+
   function handleAddBranch() {
     setForm((prev) => ({
       ...prev,
@@ -261,79 +623,6 @@ export default function Profile() {
     }))
   }
 
-  async function handleResolveBranch(index) {
-    const row = (Array.isArray(form.branch) ? form.branch : [])[index] || emptyBranch()
-    const hasArea = String(row.area_name || '').trim().length > 0
-    setError('')
-    setBranchResolvingIndex(index)
-    try {
-      let area = String(row.area_name || '').trim()
-      let lat = String(row.lat || '').trim()
-      let lng = String(row.long || '').trim()
-
-      // 1) If no area typed, try browser geolocation + reverse geocode
-      if (!hasArea && typeof navigator !== 'undefined' && navigator.geolocation) {
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10000,
-          })
-        })
-        lat = Number(position.coords.latitude).toFixed(6)
-        lng = Number(position.coords.longitude).toFixed(6)
-
-        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1&accept-language=en`
-        const r = await fetch(revUrl, { headers: { 'Accept-Language': 'en' } })
-        const data = await r.json()
-        const addr = data.address || {}
-        area =
-          addr.suburb ||
-          addr.neighbourhood ||
-          addr.city_district ||
-          addr.city ||
-          addr.town ||
-          addr.village ||
-          area
-      } else {
-        // 2) If area is typed, search by text (Bahrain scoped)
-        const query = area || ''
-        if (!query) {
-          setError('Enter branch area name first or allow location access.')
-          return
-        }
-        const q = encodeURIComponent(`${query}, Bahrain`)
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${q}&accept-language=en`, {
-          headers: { 'Accept-Language': 'en' },
-        })
-        const data = await r.json()
-        const hit = Array.isArray(data) ? data[0] : null
-        if (!hit) {
-          setError('Area not found. Try a more specific branch area name.')
-          return
-        }
-        const addr = hit.address || {}
-        area =
-          addr.suburb ||
-          addr.neighbourhood ||
-          addr.city_district ||
-          addr.city ||
-          addr.town ||
-          addr.village ||
-          query
-        lat = Number(hit.lat).toFixed(6)
-        lng = Number(hit.lon).toFixed(6)
-      }
-
-      handleBranchChange(index, 'area_name', area)
-      handleBranchChange(index, 'lat', lat)
-      handleBranchChange(index, 'long', lng)
-    } catch (err) {
-      setError(err.message || 'Failed to resolve branch location')
-    } finally {
-      setBranchResolvingIndex(null)
-    }
-  }
-
   async function handleEventImageChange(e) {
     const file = e.target.files?.[0]
     if (!file || !user?.account_uuid) return
@@ -342,17 +631,13 @@ export default function Profile() {
       return
     }
     setError('')
-    setUploadingImage(true)
-    try {
-      const accountOrClient = editingClientId || user.account_uuid
-      const url = await uploadEventImage(file, accountOrClient)
-      setForm((prev) => ({ ...prev, image: url }))
-    } catch (err) {
-      setError(err.message || 'Image upload failed')
-    } finally {
-      setUploadingImage(false)
-      e.target.value = ''
-    }
+    const localPreview = URL.createObjectURL(file)
+    setEventImagePreview((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return localPreview
+    })
+    setPendingEventImageFile(file)
+    e.target.value = ''
   }
 
   async function handleClientImageChange(e) {
@@ -363,17 +648,13 @@ export default function Profile() {
       return
     }
     setError('')
-    setUploadingClientImage(true)
-    try {
-      const accountOrClient = editingClientId || user.account_uuid
-      const url = await uploadProfileImage(file, accountOrClient)
-      setForm((prev) => ({ ...prev, client_image: url }))
-    } catch (err) {
-      setError(err.message || 'Image upload failed')
-    } finally {
-      setUploadingClientImage(false)
-      e.target.value = ''
-    }
+    const localPreview = URL.createObjectURL(file)
+    setClientImagePreview((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return localPreview
+    })
+    setPendingClientImageFile(file)
+    e.target.value = ''
   }
 
   async function handleHeaderImageEdit(e) {
@@ -421,6 +702,10 @@ export default function Profile() {
       const hasTags = full.tags != null && full.tags !== '' && !(Array.isArray(full.tags) && full.tags.length === 0)
       const merged = hasTags ? full : { ...full, tags: Array.isArray(pineconeTags) && pineconeTags.length ? pineconeTags : full.tags }
       setForm(profileToForm(merged))
+      setClientImagePreview('')
+      setEventImagePreview('')
+      setPendingClientImageFile(null)
+      setPendingEventImageFile(null)
       setEditingClientId(clientUuid)
       setShowCreateForm(false)
     } catch (err) {
@@ -433,11 +718,34 @@ export default function Profile() {
   function handleCancelEdit() {
     setEditingClientId(null)
     setForm(emptyForm())
+    setClientImagePreview('')
+    setEventImagePreview('')
+    setPendingClientImageFile(null)
+    setPendingEventImageFile(null)
   }
 
   function handleCancelCreate() {
     setShowCreateForm(false)
     setForm(emptyForm())
+    setClientImagePreview('')
+    setEventImagePreview('')
+    setPendingClientImageFile(null)
+    setPendingEventImageFile(null)
+  }
+
+  async function uploadPendingImages(baseForm, ownerId) {
+    let next = { ...baseForm }
+    if (pendingClientImageFile) {
+      setUploadingClientImage(true)
+      const url = await uploadProfileImage(pendingClientImageFile, ownerId)
+      next.client_image = url
+    }
+    if (pendingEventImageFile) {
+      setUploadingImage(true)
+      const url = await uploadEventImage(pendingEventImageFile, ownerId)
+      next.image = url
+    }
+    return next
   }
 
   async function handleSubmitCreate(e) {
@@ -463,7 +771,11 @@ export default function Profile() {
     setLoading(true)
     setSuccess({ supabase: false, pinecone: false })
     try {
-      const { supabaseOk, pineconeOk, pineconeError: pe } = await submitProfile(form, user.account_uuid)
+      const normalizedTags = form.client_type_choice === 'restaurant'
+        ? parseTags(form.tags).join(', ')
+        : formatAllowedTags(form.tags)
+      const formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, user.account_uuid)
+      const { supabaseOk, pineconeOk, pineconeError: pe } = await submitProfile(formWithUploads, user.account_uuid)
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
       if (!pineconeOk && pe) setPineconeError(pe)
       getClientsByAccount(user.account_uuid).then(setClients)
@@ -472,11 +784,17 @@ export default function Profile() {
         setForm(emptyForm())
         setSuccess({ supabase: false, pinecone: false })
         setPineconeError('')
+        setClientImagePreview('')
+        setEventImagePreview('')
+        setPendingClientImageFile(null)
+        setPendingEventImageFile(null)
       }, 2000)
     } catch (err) {
       setError(err.message || 'Failed to save profile')
     } finally {
       setLoading(false)
+      setUploadingClientImage(false)
+      setUploadingImage(false)
     }
   }
 
@@ -503,7 +821,11 @@ export default function Profile() {
     setLoading(true)
     setSuccess({ supabase: false, pinecone: false })
     try {
-      const { supabaseOk, pineconeOk, pineconeError: pe } = await updateProfile(form, editingClientId)
+      const normalizedTags = form.client_type_choice === 'restaurant'
+        ? parseTags(form.tags).join(', ')
+        : formatAllowedTags(form.tags)
+      const formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, editingClientId)
+      const { supabaseOk, pineconeOk, pineconeError: pe } = await updateProfile(formWithUploads, editingClientId)
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
       if (!pineconeOk && pe) setPineconeError(pe)
       getClientsByAccount(user.account_uuid).then(setClients)
@@ -512,11 +834,17 @@ export default function Profile() {
         setForm(emptyForm())
         setSuccess({ supabase: false, pinecone: false })
         setPineconeError('')
+        setClientImagePreview('')
+        setEventImagePreview('')
+        setPendingClientImageFile(null)
+        setPendingEventImageFile(null)
       }, 2000)
     } catch (err) {
       setError(err.message || 'Failed to update profile')
     } finally {
       setLoading(false)
+      setUploadingClientImage(false)
+      setUploadingImage(false)
     }
   }
 
@@ -561,6 +889,7 @@ export default function Profile() {
         const clientImageUrl = resolveClientImageUrl(c.client_image)
         const tagsArr = Array.isArray(c.tags) ? c.tags : (c.tags && typeof c.tags === 'string') ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
         const initial = name.charAt(0).toUpperCase()
+        const qrValue = String(c.qrcode || c.client_a_uuid || '').trim()
 
         const stats = [
           c.price_range && { icon: '💰', label: 'Price', value: c.price_range },
@@ -572,60 +901,84 @@ export default function Profile() {
         return (
           <>
             <div className="pf-card">
-              {/* Banner */}
-              <div className="pf-banner">
-                <div className="pf-banner-gradient" />
-                <div className="pf-banner-pattern" aria-hidden />
-              </div>
+              <div className="pf-card-accent" aria-hidden />
 
-              {/* Identity row */}
-              <div className="pf-identity">
-                <div className="pf-avatar-wrap">
-                  {clientImageUrl
-                    ? <img src={clientImageUrl} alt={name} className="pf-avatar" />
-                    : <div className="pf-avatar pf-avatar-init">{initial}</div>
-                  }
-                  <input ref={headerImageInputRef} type="file" accept="image/*" className="pf-hidden-input" onChange={handleHeaderImageEdit} />
-                  <button
-                    type="button"
-                    className="pf-avatar-edit"
-                    onClick={() => headerImageInputRef.current?.click()}
-                    disabled={updatingHeaderImage}
-                    title="Change photo"
-                    aria-label="Change photo"
-                  >
-                    {updatingHeaderImage
-                      ? <span className="pf-spinner" aria-hidden />
-                      : <CameraIcon size={14} />
-                    }
-                  </button>
-                </div>
+              <div className="pf-hero">
+                <div className="pf-hero-main">
+                  <div className="pf-identity">
+                    <div className="pf-avatar-wrap">
+                      {clientImageUrl
+                        ? <img src={clientImageUrl} alt={name} className="pf-avatar" />
+                        : <div className="pf-avatar pf-avatar-init">{initial}</div>
+                      }
+                      <input ref={headerImageInputRef} type="file" accept="image/*" className="pf-hidden-input" onChange={handleHeaderImageEdit} />
+                      <button
+                        type="button"
+                        className="pf-avatar-edit"
+                        onClick={() => headerImageInputRef.current?.click()}
+                        disabled={updatingHeaderImage}
+                        title="Change photo"
+                        aria-label="Change photo"
+                      >
+                        {updatingHeaderImage
+                          ? <span className="pf-spinner" aria-hidden />
+                          : <CameraIcon size={14} />
+                        }
+                      </button>
+                    </div>
 
-                <div className="pf-identity-info">
-                  <div className="pf-name-row">
-                    <h1 className="pf-name">{name}</h1>
-                    <span className="pf-type-chip">{typeLabel}</span>
+                    <div className="pf-identity-info">
+                      <div className="pf-name-row">
+                        <h1 className="pf-name">{name}</h1>
+                        <span className="pf-type-chip">{typeLabel}</span>
+                      </div>
+                      {c.description ? (
+                        <p className="pf-tagline">{c.description}</p>
+                      ) : (
+                        <p className="pf-tagline pf-tagline-empty">Add a short description to make your profile stand out.</p>
+                      )}
+                    </div>
                   </div>
-                  {c.description && <p className="pf-tagline">{c.description}</p>}
+
+                  <div className="pf-identity-actions">
+                    <button
+                      type="button"
+                      className="pf-btn pf-btn-primary"
+                      onClick={() => handleStartEdit(c.client_a_uuid)}
+                      disabled={loadingClient === c.client_a_uuid}
+                    >
+                      {loadingClient === c.client_a_uuid
+                        ? <><span className="pf-spinner" aria-hidden /> Loading…</>
+                        : <>✏️ Edit Profile</>
+                      }
+                    </button>
+                    <Link to="/posts" className="pf-btn pf-btn-ghost">📋 My Posts</Link>
+                  </div>
                 </div>
 
-                <div className="pf-identity-actions">
-                  <button
-                    type="button"
-                    className="pf-btn pf-btn-primary"
-                    onClick={() => handleStartEdit(c.client_a_uuid)}
-                    disabled={loadingClient === c.client_a_uuid}
-                  >
-                    {loadingClient === c.client_a_uuid
-                      ? <><span className="pf-spinner" aria-hidden /> Loading…</>
-                      : <>✏️ Edit Profile</>
-                    }
-                  </button>
-                  <Link to="/posts" className="pf-btn pf-btn-ghost">📋 My Posts</Link>
+                <div className="pf-qr-panel">
+                  <span className="pf-section-label">Share Profile</span>
+                  <div className="pf-qr-subtitle">Scan to open this business profile instantly.</div>
+                  <div className="pf-qr-block" onClick={() => qrValue && setExpandedQrClient(c)} role="button" tabIndex={0} aria-label="Expand QR code" onKeyDown={(e) => e.key === 'Enter' && qrValue && setExpandedQrClient(c)}>
+                    {qrValue ? (
+                      <>
+                        <QRCodeSVG
+                          value={qrValue}
+                          size={132}
+                          level="M"
+                          bgColor="#ffffff"
+                          fgColor="#111111"
+                          marginSize={4}
+                        />
+                        <span className="pf-qr-hint">Tap to expand</span>
+                      </>
+                    ) : (
+                      <span className="pf-qr-hint">QR not available yet</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Stats strip */}
               {stats.length > 0 && (
                 <div className="pf-stats">
                   {stats.map((s, i) => (
@@ -640,21 +993,16 @@ export default function Profile() {
                 </div>
               )}
 
-              {/* Body: tags + QR */}
               <div className="pf-body">
-                <div className="pf-body-left">
-                  {tagsArr.length > 0 && (
-                    <div className="pf-section">
-                      <span className="pf-section-label">Tags</span>
-                      <div className="pf-tags">
-                        {tagsArr.map((tag, i) => <span key={i} className="pf-tag">{tag}</span>)}
-                      </div>
+                <div className={`pf-section pf-tags-panel${tagsArr.length === 0 ? ' is-empty' : ''}`}>
+                  <span className="pf-section-label">Tags</span>
+                  {tagsArr.length > 0 ? (
+                    <div className="pf-tags">
+                      {tagsArr.map((tag, i) => <span key={i} className="pf-tag">#{tag}</span>)}
                     </div>
+                  ) : (
+                    <p className="pf-empty-text">No tags added yet.</p>
                   )}
-                </div>
-                <div className="pf-qr-block" onClick={() => setExpandedQrClient(c)} role="button" tabIndex={0} aria-label="Expand QR code" onKeyDown={(e) => e.key === 'Enter' && setExpandedQrClient(c)}>
-                  <QRCodeSVG value={c.qrcode || c.client_a_uuid} size={110} level="M" />
-                  <span className="pf-qr-hint">Tap to expand</span>
                 </div>
               </div>
             </div>
@@ -664,8 +1012,15 @@ export default function Profile() {
               <div className="pf-modal-backdrop" onClick={() => setExpandedQrClient(null)} role="presentation">
                 <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
                   <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
-                  <QRCodeSVG value={expandedQrClient.qrcode || expandedQrClient.client_a_uuid} size={240} level="M" />
-                  <p className="pf-modal-id">{expandedQrClient.qrcode || expandedQrClient.client_a_uuid}</p>
+                  <QRCodeSVG
+                    value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()}
+                    size={260}
+                    level="M"
+                    bgColor="#ffffff"
+                    fgColor="#111111"
+                    marginSize={4}
+                  />
+                  <p className="pf-modal-id">{String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()}</p>
                   <button type="button" className="pf-btn pf-btn-ghost" onClick={() => setExpandedQrClient(null)}>Close</button>
                 </div>
               </div>
@@ -708,9 +1063,9 @@ export default function Profile() {
                 aria-label="Upload business photo"
               >
                 <input ref={clientImageInputRef} type="file" accept="image/*" onChange={handleClientImageChange} disabled={uploadingClientImage} className="pf-hidden-input" aria-hidden />
-                {form.client_image ? (
+                {(clientImagePreview || form.client_image) ? (
                   <>
-                    <img src={form.client_image} alt="Profile" className="pf-photo-img" />
+                    <img src={clientImagePreview || form.client_image} alt="Profile" className="pf-photo-img" />
                     <div className="pf-photo-overlay">
                       {uploadingClientImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={20} /><span>Change photo</span></>}
                     </div>
@@ -746,15 +1101,110 @@ export default function Profile() {
                   </div>
                   <div className="pf-field">
                     <label className="pf-label" htmlFor="f-price_range">Price Range</label>
-                    <input id="f-price_range" className="pf-input" type="text" name="price_range" value={form.price_range || ''} onChange={handleChange} placeholder="e.g. 3–8 BHD" />
+                    <div className="pf-price-range">
+                      <div className="pf-price-preset-list">
+                        {PRICE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.value}
+                            type="button"
+                            className={`pf-price-preset ${isPresetActive(preset.value) ? 'is-active' : ''}`}
+                            onClick={() => handlePricePreset(preset.value)}
+                          >
+                            <span>{preset.label}</span>
+                            <small>{preset.value}</small>
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        id="f-price_range"
+                        className="pf-input pf-price-custom-input"
+                        type="text"
+                        name="price_range"
+                        value={form.price_range || ''}
+                        onChange={handleChange}
+                        placeholder="Custom e.g. 8-15 BHD"
+                      />
+                    </div>
                   </div>
                   <div className="pf-field">
                     <label className="pf-label" htmlFor="f-timings">Opening Hours</label>
-                    <input id="f-timings" className="pf-input" type="text" name="timings" value={form.timings || ''} onChange={handleChange} placeholder="e.g. 10AM–11PM" />
+                    <div className="pf-hours-wrap">
+                      <label className="pf-checkbox-label">
+                        <input
+                          type="checkbox"
+                          className="pf-checkbox"
+                          checked={hours.is24}
+                          onChange={handleHours24Toggle}
+                        />
+                        <span>24 Hours</span>
+                      </label>
+                      <div className="pf-hours-row">
+                        <input
+                          id="f-opening_time"
+                          className="pf-input"
+                          type="time"
+                          value={hours.open}
+                          onChange={handleOpenTimeChange}
+                          disabled={hours.is24}
+                        />
+                        <span className="pf-hours-sep">to</span>
+                        <input
+                          id="f-closing_time"
+                          className="pf-input"
+                          type="time"
+                          value={hours.close}
+                          onChange={handleCloseTimeChange}
+                          disabled={hours.is24}
+                        />
+                      </div>
+                      <input id="f-timings" type="hidden" name="timings" value={form.timings || ''} readOnly />
+                    </div>
                   </div>
                   <div className="pf-field">
                     <label className="pf-label" htmlFor="f-tags">Tags</label>
-                    <input id="f-tags" className="pf-input" type="text" name="tags" value={form.tags || ''} onChange={handleChange} placeholder="pizza, italian, casual" />
+                    {showRestaurantFields ? (
+                      <div className="pf-tags-input-wrap">
+                        <div className="pf-tag-options" id="f-tags">
+                          {parseTags(form.tags).map((tag) => (
+                            <span key={tag.toLowerCase()} className="pf-cuisine-chip">
+                              <span>#{tag}</span>
+                              <button type="button" onClick={() => removeRestaurantTag(tag)} aria-label={`Remove ${tag}`}>×</button>
+                            </span>
+                          ))}
+                          <input
+                            className="pf-tags-draft"
+                            type="text"
+                            value={tagDraft}
+                            onChange={(e) => setTagDraft(e.target.value)}
+                            onKeyDown={handleRestaurantTagKeyDown}
+                            onBlur={() => {
+                              if (tagDraft.trim()) {
+                                addRestaurantTag(tagDraft)
+                                setTagDraft('')
+                              }
+                            }}
+                            placeholder="Add your own tags"
+                          />
+                        </div>
+                        <input type="hidden" name="tags" value={parseTags(form.tags).join(', ')} readOnly />
+                      </div>
+                    ) : (
+                      <div className="pf-tags-input-wrap">
+                        <div className="pf-tag-options" id="f-tags">
+                          {TAG_OPTIONS.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              className={`pf-tag-option ${isTagSelected(tag) ? 'is-active' : ''}`}
+                              onClick={() => toggleTagOption(tag)}
+                            >
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                        <input type="hidden" name="tags" value={formatAllowedTags(form.tags)} readOnly />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -765,19 +1215,21 @@ export default function Profile() {
                   <span className="pf-section-head-icon">📍</span>
                   <span className="pf-section-head-label">Location</span>
                 </div>
-                <MapPicker
-                  lat={form.lat}
-                  lng={form.long}
-                  onChange={(lat, lng) => setForm((prev) => ({ ...prev, lat, long: lng }))}
+                <OwnerLocationPicker
+                  latitude={form.lat}
+                  longitude={form.lng || form.long}
+                  onLocationChange={({ latitude, longitude }) => {
+                    setForm((prev) => ({ ...prev, lat: latitude, lng: longitude, long: longitude }))
+                  }}
                 />
                 <div className="pf-grid" style={{ marginTop: '0.75rem' }}>
                   <div className="pf-field">
                     <label className="pf-label" htmlFor="f-lat">Latitude</label>
-                    <input id="f-lat" className="pf-input" type="text" name="lat" value={form.lat || ''} onChange={handleChange} placeholder="26.2285" readOnly />
+                    <input id="f-lat" className="pf-input" type="text" name="lat" value={form.lat || ''} onChange={handleChange} placeholder="26.2285" inputMode="decimal" />
                   </div>
                   <div className="pf-field">
-                    <label className="pf-label" htmlFor="f-long">Longitude</label>
-                    <input id="f-long" className="pf-input" type="text" name="long" value={form.long || ''} onChange={handleChange} placeholder="50.5860" readOnly />
+                    <label className="pf-label" htmlFor="f-lng">Longitude</label>
+                    <input id="f-lng" className="pf-input" type="text" name="lng" value={form.lng || form.long || ''} onChange={handleChange} placeholder="50.5860" inputMode="decimal" />
                   </div>
                 </div>
                 {showRestaurantFields && (
@@ -808,17 +1260,14 @@ export default function Profile() {
                             <div className="pf-grid" style={{ marginTop: '0.75rem' }}>
                               <div className="pf-field">
                                 <label className="pf-label">Latitude</label>
-                                <input className="pf-input" type="text" value={b.lat || ''} onChange={(e) => handleBranchChange(index, 'lat', e.target.value)} placeholder="26.2285" readOnly />
+                                <input className="pf-input" type="text" value={b.lat || ''} onChange={(e) => handleBranchChange(index, 'lat', e.target.value)} placeholder="26.2285" inputMode="decimal" />
                               </div>
                               <div className="pf-field">
                                 <label className="pf-label">Longitude</label>
-                                <input className="pf-input" type="text" value={b.long || ''} onChange={(e) => handleBranchChange(index, 'long', e.target.value)} placeholder="50.5860" readOnly />
+                                <input className="pf-input" type="text" value={b.long || ''} onChange={(e) => handleBranchChange(index, 'long', e.target.value)} placeholder="50.5860" inputMode="decimal" />
                               </div>
                             </div>
                             <div className="pf-branch-actions">
-                              <button type="button" className="pf-btn pf-btn-sm pf-btn-ghost" onClick={() => handleResolveBranch(index)} disabled={branchResolvingIndex === index}>
-                                {branchResolvingIndex === index ? 'Locating…' : 'Auto Locate'}
-                              </button>
                               <button type="button" className="pf-btn pf-btn-sm pf-btn-danger" onClick={() => handleRemoveBranch(index)}>Remove</button>
                             </div>
                           </div>
@@ -838,9 +1287,152 @@ export default function Profile() {
                   </div>
                   <div className="pf-grid">
                     {RESTAURANT_FIELDS.filter(f => f.type !== 'checkbox').map((f) => (
-                      <div key={f.key} className="pf-field">
+                      <div key={f.key} className={`pf-field${(f.key === 'cuisine' || f.key === 'meal_type' || f.key === 'food_type') ? ' pf-field-full' : ''}`}>
                         <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
-                        <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                        {f.key === 'cuisine' ? (
+                          <div className="pf-tags-input-wrap">
+                            <div className="pf-tag-options">
+                              {CUISINE_OPTIONS.map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  className={`pf-tag-option ${isCuisineSelected(option) ? 'is-active' : ''}`}
+                                  onClick={() => toggleCuisineOption(option)}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                            {parseCommaList(form.cuisine).length > 0 && (
+                              <div className="pf-cuisine-selected">
+                                {parseCommaList(form.cuisine).map((item) => (
+                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                    <span>{item}</span>
+                                    <button type="button" onClick={() => removeCuisine(item)} aria-label={`Remove ${item}`}>×</button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="pf-cuisine-manual-row">
+                              <input
+                                id="f-cuisine"
+                                className="pf-input"
+                                type="text"
+                                value={cuisineDraft}
+                                onChange={(e) => setCuisineDraft(e.target.value)}
+                                onKeyDown={handleCuisineDraftKeyDown}
+                                placeholder="Add cuisine manually"
+                              />
+                              <button
+                                type="button"
+                                className="pf-btn pf-btn-sm pf-btn-ghost"
+                                onClick={() => {
+                                  addManualCuisine(cuisineDraft)
+                                  setCuisineDraft('')
+                                }}
+                              >
+                                Add manually
+                              </button>
+                            </div>
+                            <input type="hidden" name="cuisine" value={form.cuisine || ''} readOnly />
+                          </div>
+                        ) : f.key === 'meal_type' ? (
+                          <div className="pf-tags-input-wrap">
+                            <div className="pf-tag-options">
+                              {MEAL_TYPE_OPTIONS.map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  className={`pf-tag-option ${isMealTypeSelected(option) ? 'is-active' : ''}`}
+                                  onClick={() => toggleMealTypeOption(option)}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                            {parseCommaList(form.meal_type).length > 0 && (
+                              <div className="pf-cuisine-selected">
+                                {parseCommaList(form.meal_type).map((item) => (
+                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                    <span>{item}</span>
+                                    <button type="button" onClick={() => removeMealType(item)} aria-label={`Remove ${item}`}>×</button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="pf-cuisine-manual-row">
+                              <input
+                                id="f-meal_type"
+                                className="pf-input"
+                                type="text"
+                                value={mealTypeDraft}
+                                onChange={(e) => setMealTypeDraft(e.target.value)}
+                                onKeyDown={handleMealTypeDraftKeyDown}
+                                placeholder="Add meal type manually"
+                              />
+                              <button
+                                type="button"
+                                className="pf-btn pf-btn-sm pf-btn-ghost"
+                                onClick={() => {
+                                  addManualMealType(mealTypeDraft)
+                                  setMealTypeDraft('')
+                                }}
+                              >
+                                Add manually
+                              </button>
+                            </div>
+                            <input type="hidden" name="meal_type" value={form.meal_type || ''} readOnly />
+                          </div>
+                        ) : f.key === 'food_type' ? (
+                          <div className="pf-tags-input-wrap">
+                            <div className="pf-tag-options">
+                              {FOOD_TYPE_OPTIONS.map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  className={`pf-tag-option ${isFoodTypeSelected(option) ? 'is-active' : ''}`}
+                                  onClick={() => toggleFoodTypeOption(option)}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                            {parseCommaList(form.food_type).length > 0 && (
+                              <div className="pf-cuisine-selected">
+                                {parseCommaList(form.food_type).map((item) => (
+                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                    <span>{item}</span>
+                                    <button type="button" onClick={() => removeFoodType(item)} aria-label={`Remove ${item}`}>×</button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="pf-cuisine-manual-row">
+                              <input
+                                id="f-food_type"
+                                className="pf-input"
+                                type="text"
+                                value={foodTypeDraft}
+                                onChange={(e) => setFoodTypeDraft(e.target.value)}
+                                onKeyDown={handleFoodTypeDraftKeyDown}
+                                placeholder="Add food type manually"
+                              />
+                              <button
+                                type="button"
+                                className="pf-btn pf-btn-sm pf-btn-ghost"
+                                onClick={() => {
+                                  addManualFoodType(foodTypeDraft)
+                                  setFoodTypeDraft('')
+                                }}
+                              >
+                                Add manually
+                              </button>
+                            </div>
+                            <input type="hidden" name="food_type" value={form.food_type || ''} readOnly />
+                          </div>
+                        ) : (
+                          <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                        )}
                       </div>
                     ))}
                     <div className="pf-field pf-field-checkbox">
@@ -921,9 +1513,9 @@ export default function Profile() {
                       aria-label="Upload event image"
                     >
                       <input ref={eventImageInputRef} type="file" accept="image/*" onChange={handleEventImageChange} disabled={uploadingImage} className="pf-hidden-input" aria-hidden />
-                      {form.image ? (
+                      {(eventImagePreview || form.image) ? (
                         <>
-                          <img src={form.image} alt="Event" className="pf-photo-img" />
+                          <img src={eventImagePreview || form.image} alt="Event" className="pf-photo-img" />
                           <div className="pf-photo-overlay">
                             {uploadingImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={16} /><span>Change</span></>}
                           </div>

@@ -20,7 +20,18 @@ DECLARE
   v_rating numeric;
   v_lat numeric;
   v_long numeric;
+  v_type_choice text;
+  v_client_type public.client_type;
 BEGIN
+  v_type_choice := LOWER(TRIM(COALESCE(p_type_choice, '')));
+  IF v_type_choice = 'event_organizer' THEN
+    v_type_choice := 'event';
+  END IF;
+  IF v_type_choice NOT IN ('restaurant', 'place', 'event') THEN
+    RAISE EXCEPTION 'Invalid client type: % (allowed: restaurant, place, event)', p_type_choice;
+  END IF;
+  v_client_type := v_type_choice::public.client_type;
+
   client_uuid := (p_client->>'client_a_uuid')::uuid;
 
   v_rating := CASE WHEN TRIM(COALESCE(p_client->>'rating','')) != ''
@@ -36,7 +47,7 @@ BEGIN
     description = NULLIF(TRIM(COALESCE(p_client->>'description','')), ''),
     rating = v_rating,
     price_range = NULLIF(TRIM(COALESCE(p_client->>'price_range','')), ''),
-    client_type = CASE WHEN p_type_choice = 'none' THEN 'client' ELSE p_type_choice END,
+    client_type = v_client_type,
     client_image = NULLIF(TRIM(COALESCE(p_client->>'client_image','')), ''),
     lat = v_lat,
     long = v_long,
@@ -53,7 +64,7 @@ BEGIN
   END IF;
 
   -- Update subtype
-  IF p_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
+  IF v_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
     UPDATE public.restaurant_client SET
       cuisine = COALESCE(p_restaurant->>'cuisine', ''),
       meal_type = COALESCE(p_restaurant->>'meal_type', ''),
@@ -61,7 +72,7 @@ BEGIN
       speciality = COALESCE(p_restaurant->>'speciality', ''),
       isfoodtruck = COALESCE((p_restaurant->>'isfoodtruck')::boolean, false)
     WHERE a_uuid = client_uuid;
-  ELSIF p_type_choice = 'place' AND p_place_client IS NOT NULL AND p_place IS NOT NULL THEN
+  ELSIF v_type_choice = 'place' AND p_place_client IS NOT NULL AND p_place IS NOT NULL THEN
     UPDATE public.place_client SET
       category = COALESCE(p_place_client->>'category', ''),
       indoor_outdoor = COALESCE(p_place_client->>'indoor_outdoor', '')
@@ -74,7 +85,7 @@ BEGIN
       entry_cost = (CASE WHEN TRIM(COALESCE(p_place->>'entry_cost','')) = '' THEN 0 ELSE (TRIM(p_place->>'entry_cost'))::numeric END),
       suitable_for = COALESCE(NULLIF(TRIM(COALESCE(p_place->>'suitable_for','')), ''), suitable_for)
     WHERE a_uuid = client_uuid;
-  ELSIF p_type_choice = 'event_organizer' AND p_event IS NOT NULL THEN
+  ELSIF v_type_choice = 'event' AND p_event IS NOT NULL THEN
     UPDATE public.event_organizer_client SET
       event_type = COALESCE(p_event->>'event_type', ''),
       indoor_outdoor = COALESCE(p_event->>'indoor_outdoor', '')

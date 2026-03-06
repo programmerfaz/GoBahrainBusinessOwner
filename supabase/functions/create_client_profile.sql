@@ -20,7 +20,18 @@ DECLARE
   v_rating numeric;
   v_lat numeric;
   v_long numeric;
+  v_type_choice text;
+  v_client_type public.client_type;
 BEGIN
+  v_type_choice := LOWER(TRIM(COALESCE(p_type_choice, '')));
+  IF v_type_choice = 'event_organizer' THEN
+    v_type_choice := 'event';
+  END IF;
+  IF v_type_choice NOT IN ('restaurant', 'place', 'event') THEN
+    RAISE EXCEPTION 'Invalid client type: % (allowed: restaurant, place, event)', p_type_choice;
+  END IF;
+  v_client_type := v_type_choice::public.client_type;
+
   client_uuid := (p_client->>'client_a_uuid')::uuid;
   v_rating := CASE WHEN TRIM(COALESCE(p_client->>'rating','')) != ''
                   THEN (TRIM(p_client->>'rating'))::numeric ELSE NULL END;
@@ -49,7 +60,7 @@ BEGIN
     NULLIF(p_client->>'description', ''),
     v_rating,
     NULLIF(p_client->>'price_range', ''),
-    CASE WHEN p_type_choice = 'none' THEN 'client' ELSE p_type_choice END,
+    v_client_type,
     NULLIF(p_client->>'client_image', ''),
     v_lat,
     v_long,
@@ -57,7 +68,7 @@ BEGIN
     client_uuid::text
   );
 
-  IF p_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
+  IF v_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
     INSERT INTO public.restaurant_client (a_uuid, cuisine, meal_type, food_type, speciality, isfoodtruck)
     VALUES (
       client_uuid,
@@ -67,7 +78,7 @@ BEGIN
       COALESCE(p_restaurant->>'speciality', ''),
       COALESCE((p_restaurant->>'isfoodtruck')::boolean, false)
     );
-  ELSIF p_type_choice = 'place' AND p_place_client IS NOT NULL AND p_place IS NOT NULL THEN
+  ELSIF v_type_choice = 'place' AND p_place_client IS NOT NULL AND p_place IS NOT NULL THEN
     INSERT INTO public.place_client (a_uuid, category, indoor_outdoor)
     VALUES (
       client_uuid,
@@ -85,7 +96,7 @@ BEGIN
       (CASE WHEN TRIM(COALESCE(p_place->>'entry_cost','')) = '' THEN 0 ELSE (TRIM(p_place->>'entry_cost'))::numeric END),
       COALESCE(NULLIF(p_place->>'suitable_for', ''), '')
     );
-  ELSIF p_type_choice = 'event_organizer' AND p_event IS NOT NULL THEN
+  ELSIF v_type_choice = 'event' AND p_event IS NOT NULL THEN
     INSERT INTO public.event_organizer_client (a_uuid, event_type, indoor_outdoor)
     VALUES (
       client_uuid,

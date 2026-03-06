@@ -37,11 +37,11 @@
 
 body {
   font-family: var(--font-body);
-  font-size: 1.0625rem;
+  font-size: 1.125rem;
   font-weight: 500;
   background: var(--color-bg);
   color: var(--color-text);
-  line-height: 1.6;
+  line-height: 1.65;
   letter-spacing: 0.02em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

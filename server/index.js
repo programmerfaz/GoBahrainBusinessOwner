@@ -13,6 +13,7 @@ app.use(express.json())
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://zonhaprelkjyjugpqfdn.supabase.co'
 const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvbmhhcHJlbGtqeWp1Z3BxZmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3OTE1MDUsImV4cCI6MjA4NjM2NzUwNX0.vPJEdSZzZzNo-69QV-e7pKDyAC9rFYLdpJPiwgiQR3o'
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 const openaiKey = process.env.OPENAI_API_KEY
 const pineconeKey = process.env.PINECONE_API_KEY
 const pineconeHost = process.env.PINECONE_HOST
@@ -20,6 +21,54 @@ const pineconeHost = process.env.PINECONE_HOST
 const supabase = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey)
   : null
+
+const supabaseAdmin = supabaseUrl && supabaseServiceRoleKey
+  ? createClient(supabaseUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
+  : null
+
+function sanitizePathSegment(value, fallback = 'file') {
+  const v = String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '')
+  return v || fallback
+}
+
+app.post('/api/upload-image', express.raw({ type: 'image/*', limit: '8mb' }), async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'SUPABASE_SERVICE_ROLE_KEY is required on server for reliable image upload.' })
+    }
+
+    const bucket = String(req.query.bucket || '').trim()
+    const accountUuid = sanitizePathSegment(req.query.accountUuid, 'anon')
+    const prefix = sanitizePathSegment(req.query.prefix, '')
+    const extRaw = String(req.query.ext || 'jpg').toLowerCase()
+    const ext = extRaw.replace(/[^a-z0-9]/g, '') || 'jpg'
+    const contentType = String(req.headers['content-type'] || 'application/octet-stream')
+    const allowedBuckets = new Set(['event-images', 'gobahrain-profile-images', 'gobahrain-post-images'])
+
+    if (!allowedBuckets.has(bucket)) {
+      return res.status(400).json({ error: 'Invalid bucket' })
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'Missing image body' })
+    }
+
+    const objectPath = prefix
+      ? `${prefix}/${accountUuid}/${crypto.randomUUID()}.${ext}`
+      : `${accountUuid}/${crypto.randomUUID()}.${ext}`
+
+    const { error } = await supabaseAdmin.storage.from(bucket).upload(objectPath, req.body, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType,
+    })
+    if (error) return res.status(400).json({ error: error.message || 'Upload failed' })
+
+    const { data } = supabaseAdmin.storage.from(bucket).getPublicUrl(objectPath)
+    return res.json({ publicUrl: data.publicUrl, path: objectPath, bucket })
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'Upload failed' })
+  }
+})
 
 function buildSemanticText(p) {
   const parts = []
@@ -56,8 +105,44 @@ function buildSemanticText(p) {
   return parts.join('\n')
 }
 
-/** Keys to exclude from Pinecone metadata (internal IDs only) */
-const PINECONE_METADATA_EXCLUDE = new Set(['account_a_uuid', 'client_a_uuid', 'place_uuid', 'event_uuid'])
+/** Keys to exclude from Pinecone metadata (internal IDs + non-search assets) */
+const PINECONE_METADATA_EXCLUDE = new Set([
+  'account_a_uuid',
+  'client_a_uuid',
+  'place_uuid',
+  'event_uuid',
+  'client_image',
+  'image',
+  // Location is packed into location_json below.
+  'lat',
+  'long',
+  'lng',
+  'branch',
+])
+
+function buildLocationJson(p) {
+  const main = {}
+  const lat = String(p?.lat ?? '').trim()
+  const lng = String(p?.lng ?? p?.long ?? '').trim()
+  if (lat) main.latitude = lat
+  if (lng) main.longitude = lng
+
+  const branchesArray = Array.isArray(p?.branch) ? p.branch : []
+  const branches = {}
+  branchesArray.forEach((b, i) => {
+    const key = `area${i + 1}`
+    branches[key] = {
+      name: String(b?.area_name ?? '').trim(),
+      latitude: String(b?.lat ?? '').trim(),
+      longitude: String(b?.long ?? '').trim(),
+    }
+  })
+
+  return JSON.stringify({
+    main_location: main,
+    branches,
+  })
+}
 
 /** Unified metadata — same as create: client + subtype, full payload, no duplicates */
 function buildMetadataFromPayload(p) {
@@ -68,6 +153,7 @@ function buildMetadataFromPayload(p) {
     else if (typeof v === 'boolean' || typeof v === 'number') metadata[k] = v
     else metadata[k] = String(v)
   }
+  metadata.location_json = buildLocationJson(p)
   return metadata
 }
 
@@ -86,6 +172,10 @@ function normalizeBranches(raw) {
     .filter((b) => b.area_name || b.lat || b.long)
 }
 
+function readLongitude(form) {
+  return String(form?.lng ?? form?.long ?? '').trim() || null
+}
+
 /** Build unified merged payload from fetched profile — same structure as create */
 function buildMergedPayloadFromProfile(profile, tags) {
   const tagsArr = Array.isArray(profile.tags) ? profile.tags : (typeof profile.tags === 'string' && profile.tags) ? profile.tags.split(',').map(t => t.trim()).filter(Boolean) : (tags || [])
@@ -100,6 +190,7 @@ function buildMergedPayloadFromProfile(profile, tags) {
     client_image: profile.client_image || null,
     lat: profile.lat ?? '',
     long: profile.long ?? '',
+    lng: profile.long ?? '',
     timings: profile.timings ?? '',
     tags: tagsArr,
     openclosed_state: 'open',
@@ -147,6 +238,26 @@ async function pineconeDelete(pcHost, pcKey, ids) {
     body: JSON.stringify({ ids }),
   })
   return res.ok
+}
+
+async function pineconeFetchExistingIds(pcHost, pcKey, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return []
+  const params = new URLSearchParams()
+  ids.forEach((id) => {
+    if (id) params.append('ids', id)
+  })
+  const url = `${pcHost.replace(/\/$/, '')}/vectors/fetch?${params.toString()}`
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Api-Key': pcKey,
+      'X-Pinecone-Api-Version': '2025-10',
+    },
+  })
+  if (!res.ok) return []
+  const data = await res.json().catch(() => ({}))
+  const vectors = data?.vectors && typeof data.vectors === 'object' ? data.vectors : {}
+  return Object.keys(vectors)
 }
 
 async function pineconeUpsertPayloads(payloads) {
@@ -215,7 +326,14 @@ async function refreshPineconeFromClient(clientUuid, tags = null) {
     if (profile.client_type === 'event_organizer' && Array.isArray(profile.events)) {
       profile.events.forEach((ev) => { if (ev?.event_uuid) idsToDelete.push(ev.event_uuid) })
     }
-    await pineconeDelete(pineconeHost, pineconeKey, idsToDelete)
+    try {
+      const existingIds = await pineconeFetchExistingIds(pineconeHost, pineconeKey, idsToDelete)
+      if (existingIds.length > 0) {
+        await pineconeDelete(pineconeHost, pineconeKey, existingIds)
+      }
+    } catch {
+      // Best-effort cleanup: if existence check fails, continue to upsert.
+    }
   }
 
   const { pineconeOk, pineconeError } = await pineconeUpsertPayloads(payloads)
@@ -234,6 +352,7 @@ function buildMergedPayload(clientRow, typeChoice, typeData) {
     client_image: clientRow.client_image || null,
     lat: clientRow.lat || '',
     long: clientRow.long || '',
+    lng: clientRow.long || '',
     timings: clientRow.timings || '',
     tags: Array.isArray(clientRow.tags) ? clientRow.tags : (clientRow.tags ? String(clientRow.tags).split(',').map(t => t.trim()).filter(Boolean) : []),
     openclosed_state: 'open',
@@ -272,7 +391,7 @@ app.post('/api/submit-profile', async (req, res) => {
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
       client_image: String(form.client_image ?? '').trim() || null,
       lat: String(form.lat ?? '').trim() || null,
-      long: String(form.long ?? '').trim() || null,
+      long: readLongitude(form),
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -316,7 +435,7 @@ app.post('/api/submit-profile', async (req, res) => {
         venue: form.venue?.trim() || '',
         image: String(form.image ?? '').trim() || null,
         lat: String(form.lat ?? '').trim() || null,
-        long: String(form.long ?? '').trim() || null,
+        long: readLongitude(form),
         start_date: form.start_date?.trim() || '',
         end_date: form.end_date?.trim() || '',
         start_time: form.start_time?.trim() || '',
@@ -334,7 +453,7 @@ app.post('/api/submit-profile', async (req, res) => {
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
       client_image: String(form.client_image ?? '').trim() || null,
       lat: String(form.lat ?? '').trim() || null,
-      long: String(form.long ?? '').trim() || null,
+      long: readLongitude(form),
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -474,7 +593,7 @@ app.put('/api/update-profile', async (req, res) => {
         venue: form.venue?.trim() || '',
         image: String(form.image ?? '').trim() || null,
         lat: String(form.lat ?? '').trim() || null,
-        long: String(form.long ?? '').trim() || null,
+        long: readLongitude(form),
         start_date: form.start_date?.trim() || '',
         end_date: form.end_date?.trim() || '',
         start_time: form.start_time?.trim() || '',
@@ -491,7 +610,7 @@ app.put('/api/update-profile', async (req, res) => {
       client_type: typeChoice === 'none' ? 'client' : typeChoice,
       client_image: String(form.client_image ?? '').trim() || null,
       lat: String(form.lat ?? '').trim() || null,
-      long: String(form.long ?? '').trim() || null,
+      long: readLongitude(form),
       timings: form.timings?.trim() || null,
       tags,
     }
@@ -526,7 +645,39 @@ app.put('/api/update-profile', async (req, res) => {
     if (skipPinecone) {
       return res.json({ supabaseOk: true, pineconeOk: false, pineconeError: null })
     }
-    const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
+    let { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
+
+    // Fallback: if refresh-from-db fails, upsert directly from current request payload.
+    if (!pineconeOk) {
+      let mergedPayload = { ...pClientForDb, tags }
+      if (typeChoice === 'restaurant' && pRestaurant) {
+        mergedPayload = buildMergedPayload(pClientForDb, typeChoice, pRestaurant)
+      } else if (typeChoice === 'place' && pPlaceClient && pPlace) {
+        mergedPayload = buildMergedPayload(pClientForDb, typeChoice, {
+          ...pPlaceClient,
+          ...pPlace,
+          place_name: pPlace.name,
+          place_description: pPlace.description,
+        })
+      } else if (typeChoice === 'event_organizer' && pEvent) {
+        mergedPayload = buildMergedPayload(pClientForDb, typeChoice, {
+          ...pEvent,
+          record_type: 'event',
+          indoor_outdoor: pEvent.indoor_outdoor || pEvent.event_indoor_outdoor || '',
+        })
+      }
+
+      const fallbackPayloads = Array.isArray(mergedPayload) ? mergedPayload : [mergedPayload]
+      const fallbackResult = await pineconeUpsertPayloads(fallbackPayloads)
+      if (fallbackResult.pineconeOk) {
+        pineconeOk = true
+        pineconeError = null
+      } else if (fallbackResult.pineconeError) {
+        pineconeError = pineconeError
+          ? `${pineconeError} | Fallback upsert failed: ${fallbackResult.pineconeError}`
+          : `Fallback upsert failed: ${fallbackResult.pineconeError}`
+      }
+    }
 
     return res.json({ supabaseOk: true, pineconeOk, pineconeError })
   } catch (e) {
