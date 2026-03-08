@@ -6,7 +6,7 @@ export default function Home() {
   const { user } = useAuth()
 
   if (user) {
-    return <Profile />
+    return <Profile mode="dashboard" />
   }
 
   return (
@@ -14,7 +14,7 @@ export default function Home() {
       <section className="landing-hero">
         <div className="landing-hero-content">
           <span className="landing-badge">Kingdom of Bahrain</span>
-          <h1>Showcase Your Business to the World</h1>
+          <h1>Showcase Your Business in Bahrain</h1>
           <p>Join Go Bahrain and connect your restaurant, venue, or event with thousands of visitors exploring the island.</p>
           <div className="landing-cta">
             <Link to="/signup" className="btn btn-primary btn-lg">Get Started Free</Link>
@@ -67,7 +67,6 @@ export default function Home() {
     </div>
   )
 }
-
 function LandingIcon({ kind }) {
   if (kind === 'restaurant') {
     return (
@@ -114,3 +113,4 @@ function LandingIcon({ kind }) {
     </svg>
   )
 }
+

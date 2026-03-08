@@ -1,5 +1,4 @@
--- Run in Supabase SQL Editor
--- Update a post
+-- Update a post (table: public.posts)
 
 CREATE OR REPLACE FUNCTION public.update_post(
   p_post_uuid uuid,
@@ -10,12 +9,13 @@ CREATE OR REPLACE FUNCTION public.update_post(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   result jsonb;
-  updated_post public.post;
+  updated_post public.posts;
 BEGIN
-  UPDATE public.post SET
+  UPDATE public.posts SET
     description = COALESCE(NULLIF(TRIM(p_description), ''), description),
     price_range = COALESCE(p_price_range, price_range),
     post_image = COALESCE(p_post_image, post_image)

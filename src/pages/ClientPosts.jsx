@@ -182,7 +182,7 @@ export default function ClientPosts() {
             </div>
           )}
           {posts.map((p, i) => {
-            const gradientClass = ['gradient-purple', 'gradient-green', 'gradient-orange'][i % 3]
+            const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const created = p.created_at ? new Date(p.created_at).toLocaleDateString() : ''
             const img = p.post_image || p.image_url
             const isEditing = editingPost?.post_uuid === p.post_uuid
@@ -244,8 +244,10 @@ export default function ClientPosts() {
                     </div>
                   )}
                   {!img && <div className="post-card-image-placeholder" />}
-                  <span className="post-card-date">{created}</span>
-                  {p.price_range && <span className="post-card-price">{p.price_range}</span>}
+                  <div className="post-card-meta">
+                    {created && <span className="post-card-date">{created}</span>}
+                    {p.price_range && <span className="post-card-price">{p.price_range}</span>}
+                  </div>
                   <button
                     type="button"
                     className="post-card-update-btn"

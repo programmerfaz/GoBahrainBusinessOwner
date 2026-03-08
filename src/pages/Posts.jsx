@@ -51,6 +51,18 @@ export default function Posts() {
   const editFileInputRef = useRef(null)
   const eventFileInputRef = useRef(null)
   const editEventFileInputRef = useRef(null)
+  const [composePhotoPreview, setComposePhotoPreview] = useState(null)
+
+  const composeFile = editingPost ? editImageFile : imageFile
+  useEffect(() => {
+    if (!composeFile) {
+      setComposePhotoPreview(null)
+      return
+    }
+    const url = URL.createObjectURL(composeFile)
+    setComposePhotoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [composeFile])
 
   const singleClient = clients.length === 1 ? clients[0] : null
   const clientId = singleClient?.client_a_uuid
@@ -291,19 +303,25 @@ export default function Posts() {
     )
   }
 
-  const businessName = singleClient?.business_name || singleClient?.name || 'Your business'
+  function openCreate() {
+    setError('')
+    if (activeSection === 'posts') {
+      setCreateForm({ description: '', priceRange: '' })
+      setImageFile(null)
+      setShowCreate(true)
+    } else if (isEventOrganizer && activeSection === 'events') {
+      setEditingEvent(null)
+      setShowCreateEvent(true)
+      setEventImageFile(null)
+      if (eventFileInputRef.current) eventFileInputRef.current.value = ''
+      setEventForm(emptyEventForm())
+    }
+  }
+
+  const showFab = activeSection === 'posts' || (isEventOrganizer && activeSection === 'events')
 
   return (
     <div className="page dashboard-v2 home-posts">
-      <section className="dash-hero-v2 dash-hero-posts">
-        <div className="dash-hero-v2-pattern" aria-hidden />
-        <div className="dash-hero-v2-inner">
-          <h1>Posts &amp; Events</h1>
-          <p>{businessName} · {activeSection === 'events' ? 'Events' : 'Posts'}</p>
-          <Link to="/" className="btn btn-hero btn-outline">Profile</Link>
-        </div>
-      </section>
-
       {sectionTabs.length > 1 && (
         <HomeContentNav
           tabs={sectionTabs}
@@ -319,34 +337,6 @@ export default function Posts() {
         />
       )}
 
-      <div className="posts-toolbar">
-        {activeSection === 'posts' && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => { setShowCreate(true); setError(''); setCreateForm({ description: '', priceRange: '' }); setImageFile(null); }}
-          >
-            Create a post
-          </button>
-        )}
-        {isEventOrganizer && activeSection === 'events' && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => {
-              setError('')
-              setEditingEvent(null)
-              setShowCreateEvent(true)
-              setEventImageFile(null)
-              if (eventFileInputRef.current) eventFileInputRef.current.value = ''
-              setEventForm(emptyEventForm())
-            }}
-          >
-            Create event
-          </button>
-        )}
-      </div>
-
       {error && <div className="auth-error">{error}</div>}
 
       {(loading || postsLoading) && clients.length < 1 && <p className="clients-loading">Loading...</p>}
@@ -360,7 +350,7 @@ export default function Posts() {
       )}
 
       {clientId && (
-        ((activeSection === 'posts' && (posts.length > 0 || showCreate)) ||
+        ((activeSection === 'posts' && posts.length > 0) ||
           (activeSection === 'events' && isEventOrganizer && (events.length > 0 || showCreateEvent || !!editingEvent))) && (
         <div className="posts-grid">
           {activeSection === 'events' && showCreateEvent && (
@@ -502,103 +492,11 @@ export default function Posts() {
               </form>
             </div>
           )}
-          {activeSection === 'posts' && showCreate && (
-            <div className="post-card post-card-create">
-              <form onSubmit={handleCreatePost} className="post-create-form">
-                <h3>New Post</h3>
-                <label>
-                  Description *
-                  <textarea
-                    value={createForm.description}
-                    onChange={(e) => setCreateForm((p) => ({ ...p, description: e.target.value }))}
-                    placeholder="Describe your post..."
-                    rows={4}
-                    required
-                  />
-                </label>
-                <label>
-                  Image
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-                  />
-                  {imageFile && <span className="file-name">{imageFile.name}</span>}
-                </label>
-                <label>
-                  Price range
-                  <input
-                    type="text"
-                    value={createForm.priceRange}
-                    onChange={(e) => setCreateForm((p) => ({ ...p, priceRange: e.target.value }))}
-                    placeholder="e.g. 5-20 BHD"
-                  />
-                </label>
-                <div className="form-actions">
-                  <button type="submit" className="btn btn-primary" disabled={saving}>
-                    {saving ? 'Creating...' : 'Create'}
-                  </button>
-                  <button type="button" className="btn btn-outline" onClick={() => setShowCreate(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
           {activeSection === 'posts' && posts.map((p, i) => {
-            const gradientClass = ['gradient-purple', 'gradient-green', 'gradient-orange'][i % 3]
+            const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const created = p.created_at ? new Date(p.created_at).toLocaleDateString() : ''
             const img = p.post_image || p.image_url
             const isEditing = editingPost?.post_uuid === p.post_uuid
-
-            if (isEditing) {
-              return (
-                <div key={p.post_uuid} className="post-card post-card-create">
-                  <form onSubmit={handleUpdatePost} className="post-create-form">
-                    <h3>Update Post</h3>
-                    <label>
-                      Description *
-                      <textarea
-                        value={editForm.description}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
-                        placeholder="Describe your post..."
-                        rows={4}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Image
-                      <input
-                        ref={editFileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        onChange={(e) => setEditImageFile(e.target.files?.[0] || null)}
-                      />
-                      {editImageFile && <span className="file-name">{editImageFile.name}</span>}
-                      {img && !editImageFile && <span className="file-name">Current image</span>}
-                    </label>
-                    <label>
-                      Price range
-                      <input
-                        type="text"
-                        value={editForm.priceRange}
-                        onChange={(e) => setEditForm((prev) => ({ ...prev, priceRange: e.target.value }))}
-                        placeholder="e.g. 5-20 BHD"
-                      />
-                    </label>
-                    <div className="form-actions">
-                      <button type="submit" className="btn btn-primary" disabled={saving}>
-                        {saving ? 'Saving...' : 'Save'}
-                      </button>
-                      <button type="button" className="btn btn-outline" onClick={() => { setEditingPost(null); setError(''); }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              )
-            }
 
             return (
               <div key={p.post_uuid} className={`post-card post-card-item ${gradientClass}`}>
@@ -609,8 +507,10 @@ export default function Posts() {
                     </div>
                   )}
                   {!img && <div className="post-card-image-placeholder" />}
-                  <span className="post-card-date">{created}</span>
-                  {p.price_range && <span className="post-card-price">{p.price_range}</span>}
+                  <div className="post-card-meta">
+                    {created && <span className="post-card-date">{created}</span>}
+                    {p.price_range && <span className="post-card-price">{p.price_range}</span>}
+                  </div>
                   <button
                     type="button"
                     className="post-card-update-btn"
@@ -633,7 +533,7 @@ export default function Posts() {
           })}
 
           {isEventOrganizer && activeSection === 'events' && events.map((ev, i) => {
-            const gradientClass = ['gradient-purple', 'gradient-green', 'gradient-orange'][i % 3]
+            const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const evImage = ev.image || ''
             const when = [ev.start_date, ev.start_time].filter(Boolean).join(' ')
             const isEditing = editingEvent?.event_uuid === ev.event_uuid
@@ -713,8 +613,10 @@ export default function Posts() {
                   ) : (
                     <div className="post-card-image-placeholder" />
                   )}
-                  {when && <span className="post-card-date">{when}</span>}
-                  {ev.status && <span className="post-card-price">{ev.status}</span>}
+                  <div className="post-card-meta">
+                    {when && <span className="post-card-date">{when}</span>}
+                    {ev.status && <span className="post-card-price">{ev.status}</span>}
+                  </div>
                   <button type="button" className="post-card-update-btn" onClick={() => startEditEvent(ev)} title="Update">
                     Update
                   </button>
@@ -736,6 +638,135 @@ export default function Posts() {
         <section className="dash-unified">
           <p>You have more than one profile. Manage them from <Link to="/">Profile</Link>.</p>
         </section>
+      )}
+
+      {showFab && (
+        <button
+          type="button"
+          className="posts-fab"
+          onClick={openCreate}
+          aria-label={activeSection === 'posts' ? 'Create a post' : 'Create event'}
+        >
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+      )}
+
+      {/* Post compose modal (new post or update) */}
+      {activeSection === 'posts' && (showCreate || editingPost) && (
+        <div
+          className="post-compose-backdrop"
+          onClick={() => {
+            setShowCreate(false)
+            setEditingPost(null)
+            setError('')
+          }}
+          role="presentation"
+        >
+          <div
+            className="post-compose-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="post-compose-title"
+            aria-modal="true"
+          >
+            <div className="post-compose-header">
+              <h2 id="post-compose-title" className="post-compose-title">
+                {editingPost ? 'Update post' : 'New post'}
+              </h2>
+              <button
+                type="button"
+                className="post-compose-close"
+                onClick={() => { setShowCreate(false); setEditingPost(null); setError(''); }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              onSubmit={editingPost ? handleUpdatePost : handleCreatePost}
+              className="post-compose-form"
+            >
+              <div className="post-compose-photo">
+                <input
+                  ref={editingPost ? editFileInputRef : fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    if (editingPost) setEditImageFile(file)
+                    else setImageFile(file)
+                  }}
+                  id="post-compose-file"
+                  className="post-compose-file-input"
+                />
+                <label htmlFor="post-compose-file" className="post-compose-photo-label">
+                  {composePhotoPreview ? (
+                    <img src={composePhotoPreview} alt="" className="post-compose-photo-preview" />
+                  ) : (editingPost?.post_image || editingPost?.image_url) ? (
+                    <img
+                      src={editingPost.post_image || editingPost.image_url}
+                      alt=""
+                      className="post-compose-photo-preview"
+                    />
+                  ) : (
+                    <>
+                      <span className="post-compose-photo-icon">📷</span>
+                      <span className="post-compose-photo-text">Add photo</span>
+                    </>
+                  )}
+                </label>
+              </div>
+
+              <div className="post-compose-field">
+                <label htmlFor="post-compose-desc">What's this about? *</label>
+                <textarea
+                  id="post-compose-desc"
+                  required
+                  rows={4}
+                  placeholder="Describe your post..."
+                  value={editingPost ? editForm.description : createForm.description}
+                  onChange={(e) =>
+                    editingPost
+                      ? setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                      : setCreateForm((p) => ({ ...p, description: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="post-compose-field post-compose-price-wrap">
+                <label htmlFor="post-compose-price">Price (optional)</label>
+                <input
+                  id="post-compose-price"
+                  type="text"
+                  placeholder="e.g. 5–20 BHD"
+                  value={editingPost ? editForm.priceRange : createForm.priceRange}
+                  onChange={(e) =>
+                    editingPost
+                      ? setEditForm((prev) => ({ ...prev, priceRange: e.target.value }))
+                      : setCreateForm((p) => ({ ...p, priceRange: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="post-compose-actions">
+                <button
+                  type="button"
+                  className="post-compose-cancel"
+                  onClick={() => { setShowCreate(false); setEditingPost(null); setError(''); }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="post-compose-submit" disabled={saving}>
+                  {saving ? (editingPost ? 'Saving...' : 'Publishing...') : (editingPost ? 'Save changes' : 'Publish')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   )

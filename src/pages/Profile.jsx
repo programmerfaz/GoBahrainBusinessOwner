@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../context/AuthContext'
 import { getClientsByAccount, getClientFull, fetchTagsFromPinecone } from '../lib/clients'
+import { getPostsByClient } from '../lib/posts'
 import { submitProfile } from '../lib/submitProfile'
 import { updateProfile } from '../lib/updateProfile'
 import { uploadProfileImage, uploadEventImage, ensureProfileImagesBucket, ensureEventImagesBucket } from '../lib/profileImages'
@@ -36,8 +37,8 @@ const emptyBranch = () => ({
 })
 
 const PRICE_PRESETS = [
-  { label: 'Budget', value: '1-3 BHD' },
-  { label: 'Mid', value: '3-7 BHD' },
+  { label: 'Affordable', value: '1-3 BHD' },
+  { label: 'Mid-range', value: '3-7 BHD' },
   { label: 'Premium', value: '8-20 BHD' },
   { label: 'Luxury', value: '20+ BHD' },
 ]
@@ -64,6 +65,8 @@ const CUISINE_OPTIONS = [
   'Turkish',
   'Lebanese',
   'Filipino',
+  'International',
+  'Cafe',
 ]
 const MEAL_TYPE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 const FOOD_TYPE_OPTIONS = [
@@ -308,8 +311,11 @@ function resolveClientImageUrl(raw) {
   return `${api.supabase.url}/storage/v1/object/public/gobahrain-profile-images/${normalizedPath}`
 }
 
-export default function Profile() {
+export default function Profile({ mode }) {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const isDashboard = mode === 'dashboard'
+  const isEditPage = mode === 'edit'
   const [clients, setClients] = useState([])
   const [displayClient, setDisplayClient] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -333,6 +339,8 @@ export default function Profile() {
   const [foodTypeDraft, setFoodTypeDraft] = useState('')
   const [expandedQrClient, setExpandedQrClient] = useState(null)
   const [updatingHeaderImage, setUpdatingHeaderImage] = useState(false)
+  const [profilePosts, setProfilePosts] = useState([])
+  const [profilePostsLoading, setProfilePostsLoading] = useState(false)
   const headerImageInputRef = useRef(null)
   const clientImageInputRef = useRef(null)
   const eventImageInputRef = useRef(null)
@@ -375,6 +383,25 @@ export default function Profile() {
       .then((full) => setDisplayClient(full || clients[0] || null))
       .catch(() => setDisplayClient(clients[0] || null))
   }, [clients])
+
+  useEffect(() => {
+    if (!isDashboard || !displayClient?.client_a_uuid) {
+      setProfilePosts([])
+      return
+    }
+    setProfilePostsLoading(true)
+    getPostsByClient(displayClient.client_a_uuid)
+      .then((list) => setProfilePosts(Array.isArray(list) ? list.slice(0, 6) : []))
+      .catch(() => setProfilePosts([]))
+      .finally(() => setProfilePostsLoading(false))
+  }, [isDashboard, displayClient?.client_a_uuid])
+
+  // On Edit page: populate form from displayClient when we have data
+  useEffect(() => {
+    if (!isEditPage || !displayClient || !clients.length) return
+    setForm(profileToForm(displayClient))
+    setEditingClientId(displayClient.client_a_uuid)
+  }, [isEditPage, displayClient?.client_a_uuid, clients.length])
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target
@@ -838,7 +865,8 @@ export default function Profile() {
         setEventImagePreview('')
         setPendingClientImageFile(null)
         setPendingEventImageFile(null)
-      }, 2000)
+        navigate('/', { replace: true })
+      }, 1200)
     } catch (err) {
       setError(err.message || 'Failed to update profile')
     } finally {
@@ -881,147 +909,431 @@ export default function Profile() {
         </div>
       )}
 
-      {/* ══════════════ PROFILE CARD (read-only view) ══════════════ */}
-      {!loading && clients.length > 0 && !showCreateForm && !isEditing && (() => {
+      {/* Dashboard empty state: no profile yet */}
+      {isDashboard && !loading && clients.length === 0 && (
+        <div className="pf-card pf-empty-dashboard">
+          <div className="pf-card-accent" aria-hidden />
+          <h2 className="pf-form-title">No profile yet</h2>
+          <p className="pf-form-sub">Create your business profile to get started.</p>
+          <Link to="/edit" className="pf-btn pf-btn-primary pf-btn-lg">Create profile</Link>
+        </div>
+      )}
+
+      {/* ══════════════ HOME DASHBOARD ══════════════ */}
+      {!loading && clients.length > 0 && isDashboard && (() => {
         const c = displayClient || clients[0]
         const name = c.business_name || c.name || 'Unnamed'
         const typeLabel = (c.client_type || 'business').replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
         const clientImageUrl = resolveClientImageUrl(c.client_image)
-        const tagsArr = Array.isArray(c.tags) ? c.tags : (c.tags && typeof c.tags === 'string') ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
         const initial = name.charAt(0).toUpperCase()
         const qrValue = String(c.qrcode || c.client_a_uuid || '').trim()
+        const tagsArr = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' && c.tags) ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+        const branches = Array.isArray(c.branch) ? c.branch : (typeof c.branch === 'object' && c.branch !== null) ? [c.branch] : []
+        const activeBranches = branches.filter(b => b && (b.area_name || b.lat || b.long))
+        const lat = parseFloat(c.lat ?? activeBranches[0]?.lat)
+        const lng = parseFloat(c.lng ?? c.long ?? activeBranches[0]?.long)
+        const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng)
+        const mapsUrl = hasCoords ? `https://www.google.com/maps?q=${lat},${lng}` : null
+        const osmUrl = hasCoords ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.02},${lat - 0.02},${lng + 0.02},${lat + 0.02}&layer=mapnik&marker=${lat},${lng}` : null
 
-        const stats = [
-          c.price_range && { icon: '💰', label: 'Price', value: c.price_range },
-          c.timings    && { icon: '🕐', label: 'Hours',  value: c.timings },
-          c.cuisine    && { icon: '🍽️', label: 'Cuisine', value: c.cuisine },
-          c.category   && { icon: '📍', label: 'Category', value: c.category },
-        ].filter(Boolean)
+        const detailItems = []
+        const add = (label, value, icon) => { if (value != null && String(value).trim() !== '') detailItems.push({ label, value: String(value).trim(), icon }) }
+        add('Price Range', c.price_range, 'price')
+        add('Hours', c.timings, 'clock')
+        add('Cuisine', c.cuisine, 'cuisine')
+        add('Meal Type', c.meal_type, 'meal')
+        add('Food Type', c.food_type, 'food')
+        add('Speciality', c.speciality, 'star')
+        add('Category', c.category, 'grid')
+        add('Indoor / Outdoor', c.indoor_outdoor, 'door')
+        add('Place', c.place_name, 'pin')
+        add('Entry Cost', c.entry_cost, 'price')
+        add('Suitable For', c.suitable_for, 'people')
+        add('Event Type', c.event_type, 'event')
+        add('Event Name', c.event_name ?? c.events?.[0]?.event_name, 'event')
+        add('Venue', c.venue ?? c.events?.[0]?.venue, 'pin')
+        add('Status', c.status ?? c.events?.[0]?.status, 'star')
+
+        const descSnippet = c.description
+          ? (c.description.length > 220 ? c.description.slice(0, 220).trim() + '…' : c.description)
+          : null
 
         return (
           <>
-            <div className="pf-card">
-              <div className="pf-card-accent" aria-hidden />
-
-              <div className="pf-hero">
-                <div className="pf-hero-main">
-                  <div className="pf-identity">
-                    <div className="pf-avatar-wrap">
-                      {clientImageUrl
-                        ? <img src={clientImageUrl} alt={name} className="pf-avatar" />
-                        : <div className="pf-avatar pf-avatar-init">{initial}</div>
-                      }
-                      <input ref={headerImageInputRef} type="file" accept="image/*" className="pf-hidden-input" onChange={handleHeaderImageEdit} />
-                      <button
-                        type="button"
-                        className="pf-avatar-edit"
-                        onClick={() => headerImageInputRef.current?.click()}
-                        disabled={updatingHeaderImage}
-                        title="Change photo"
-                        aria-label="Change photo"
-                      >
-                        {updatingHeaderImage
-                          ? <span className="pf-spinner" aria-hidden />
-                          : <CameraIcon size={14} />
-                        }
-                      </button>
+            <div className="hd-page">
+              {/* Top section: hero-style header */}
+              <header className="hd-header">
+                <div className="hd-header-inner">
+                  <div className="hd-logo-wrap">
+                    <div className="hd-logo-circle">
+                      {clientImageUrl ? <img src={clientImageUrl} alt={name} /> : <span>{initial}</span>}
                     </div>
+                  </div>
+                  <div className="hd-identity">
+                    <h1 className="hd-name">{name}</h1>
+                    <span className="hd-type-badge">{typeLabel}</span>
+                  </div>
+                </div>
+              </header>
 
-                    <div className="pf-identity-info">
-                      <div className="pf-name-row">
-                        <h1 className="pf-name">{name}</h1>
-                        <span className="pf-type-chip">{typeLabel}</span>
+              {/* Body */}
+              <div className="hd-body">
+                {/* Left column */}
+                <div className="hd-col-left">
+                  {descSnippet && (
+                    <div className="hd-desc-card">
+                      <p className="hd-desc-text">{descSnippet}</p>
+                    </div>
+                  )}
+
+                  {detailItems.length > 0 && (
+                    <div className="hd-card">
+                      <h2 className="hd-card-title">Details</h2>
+                      <div className="hd-details-grid">
+                        {detailItems.map((item, i) => (
+                          <div
+                            key={i}
+                            className={`hd-detail-item${item.label === 'Price Range' ? ' hd-detail-item--price' : ''}`}
+                          >
+                            <div className="hd-detail-icon"><HdDetailIcon type={item.icon} /></div>
+                            <span className="hd-detail-label">{item.label}</span>
+                            <span className="hd-detail-value">
+                              {item.label === 'Price Range' && item.value ? (
+                                <>
+                                  {item.value.replace(/\s*BHD\s*$/i, '').trim()}
+                                  <span className="hd-detail-currency"> BHD</span>
+                                </>
+                              ) : item.value}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      {c.description ? (
-                        <p className="pf-tagline">{c.description}</p>
+                    </div>
+                  )}
+
+                  {tagsArr.length > 0 && (
+                    <div className="hd-card">
+                      <h2 className="hd-card-title">Tags</h2>
+                      <div className="hd-tags-row">
+                        {tagsArr.map((tag, i) => (
+                          <span key={i} className={`hd-tag hd-tag-${(i % 5) + 1}`}>
+                            #{String(tag).replace(/^#/, '')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {detailItems.length === 0 && tagsArr.length === 0 && !descSnippet && (
+                    <div className="hd-card hd-empty-card">
+                      <h2 className="hd-empty-title">Build your profile</h2>
+                      <p className="hd-empty-text">Add details, tags, and locations so customers can find you.</p>
+                      <Link to="/edit" className="hd-btn hd-btn-edit">Update profile</Link>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right column */}
+                <div className="hd-col-right">
+                  {(profilePostsLoading || profilePosts.length > 0) && (
+                    <div className="hd-card">
+                      <h2 className="hd-card-title">Menu Highlights Gallery</h2>
+                      {profilePostsLoading ? (
+                        <p className="hd-gallery-loading">Loading…</p>
                       ) : (
-                        <p className="pf-tagline pf-tagline-empty">Add a short description to make your profile stand out.</p>
+                        <div className="hd-gallery">
+                          {profilePosts.slice(0, 3).map((post, i) => (
+                            <div key={post.post_uuid || i} className="hd-gallery-item">
+                              {post.post_image
+                                ? <img src={post.post_image} alt="" loading="lazy" />
+                                : <div className="hd-gallery-ph" />
+                              }
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  </div>
+                  )}
 
-                  <div className="pf-identity-actions">
-                    <button
-                      type="button"
-                      className="pf-btn pf-btn-primary"
-                      onClick={() => handleStartEdit(c.client_a_uuid)}
-                      disabled={loadingClient === c.client_a_uuid}
-                    >
-                      {loadingClient === c.client_a_uuid
-                        ? <><span className="pf-spinner" aria-hidden /> Loading…</>
-                        : <>✏️ Edit Profile</>
-                      }
-                    </button>
-                    <Link to="/posts" className="pf-btn pf-btn-ghost">📋 My Posts</Link>
-                  </div>
-                </div>
-
-                <div className="pf-qr-panel">
-                  <span className="pf-section-label">Share Profile</span>
-                  <div className="pf-qr-subtitle">Scan to open this business profile instantly.</div>
-                  <div className="pf-qr-block" onClick={() => qrValue && setExpandedQrClient(c)} role="button" tabIndex={0} aria-label="Expand QR code" onKeyDown={(e) => e.key === 'Enter' && qrValue && setExpandedQrClient(c)}>
-                    {qrValue ? (
-                      <>
-                        <QRCodeSVG
-                          value={qrValue}
-                          size={132}
-                          level="M"
-                          bgColor="#ffffff"
-                          fgColor="#111111"
-                          marginSize={4}
-                        />
-                        <span className="pf-qr-hint">Tap to expand</span>
-                      </>
-                    ) : (
-                      <span className="pf-qr-hint">QR not available yet</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {stats.length > 0 && (
-                <div className="pf-stats">
-                  {stats.map((s, i) => (
-                    <div key={i} className="pf-stat">
-                      <span className="pf-stat-icon">{s.icon}</span>
-                      <div>
-                        <span className="pf-stat-label">{s.label}</span>
-                        <span className="pf-stat-value">{s.value}</span>
+                  {(activeBranches.length > 0 || hasCoords) && (
+                    <div className="hd-card">
+                      <h2 className="hd-card-title">Locations</h2>
+                      <div className="hd-location-layout">
+                        {osmUrl && (
+                          <div className="hd-map-block">
+                            <iframe
+                              title="Map"
+                              src={osmUrl}
+                              className="hd-map-iframe"
+                              loading="lazy"
+                              sandbox="allow-scripts allow-same-origin"
+                            />
+                          </div>
+                        )}
+                        <div className="hd-location-info">
+                          {activeBranches.length > 0 ? activeBranches.map((b, i) => (
+                            <div key={i} className="hd-location-entry">
+                              <div className="hd-location-pin-row">
+                                <HdPinIcon />
+                                <div>
+                                  <p className="hd-location-name">{b.area_name || `Branch ${i + 1}`}</p>
+                                  {b.area_name && <p className="hd-location-addr">{b.area_name}, Bahrain</p>}
+                                </div>
+                              </div>
+                              {b.lat && b.long && (
+                                <a
+                                  href={`https://www.google.com/maps?q=${b.lat},${b.long}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hd-btn-directions"
+                                >
+                                  Get Directions
+                                </a>
+                              )}
+                            </div>
+                          )) : (
+                            <div className="hd-location-entry">
+                              <div className="hd-location-pin-row">
+                                <HdPinIcon />
+                                <div>
+                                  <p className="hd-location-name">Manama, Bahrain</p>
+                                  <p className="hd-location-addr">Bahrain</p>
+                                </div>
+                              </div>
+                              {mapsUrl && (
+                                <a
+                                  href={mapsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hd-btn-directions"
+                                >
+                                  Get Directions
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="pf-body">
-                <div className={`pf-section pf-tags-panel${tagsArr.length === 0 ? ' is-empty' : ''}`}>
-                  <span className="pf-section-label">Tags</span>
-                  {tagsArr.length > 0 ? (
-                    <div className="pf-tags">
-                      {tagsArr.map((tag, i) => <span key={i} className="pf-tag">#{tag}</span>)}
-                    </div>
-                  ) : (
-                    <p className="pf-empty-text">No tags added yet.</p>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* QR modal */}
+            {qrValue && (
+              <button type="button" className="vp-qr-float" onClick={() => setExpandedQrClient(c)} aria-label="Share QR">
+                <QRCodeSVG value={qrValue} size={28} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
+              </button>
+            )}
             {expandedQrClient && (
-              <div className="pf-modal-backdrop" onClick={() => setExpandedQrClient(null)} role="presentation">
-                <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">
+                <div className="pf-modal vp-modal" onClick={(e) => e.stopPropagation()}>
                   <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
-                  <QRCodeSVG
-                    value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()}
-                    size={260}
-                    level="M"
-                    bgColor="#ffffff"
-                    fgColor="#111111"
-                    marginSize={4}
-                  />
-                  <p className="pf-modal-id">{String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()}</p>
-                  <button type="button" className="pf-btn pf-btn-ghost" onClick={() => setExpandedQrClient(null)}>Close</button>
+                  <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
+                  <p className="pf-modal-id">Scan to open this profile</p>
+                  <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      })()}
+
+      {/* ══════════════ VISIT PROFILE (public / tourism layout – not for home) ══════════════ */}
+      {!loading && clients.length > 0 && !isDashboard && !isEditPage && !showCreateForm && !isEditing && (() => {
+        const c = displayClient || clients[0]
+        const name = c.business_name || c.name || 'Unnamed'
+        const nameParts = name.trim().split(/\s+/)
+        const nameFirst = nameParts.slice(0, -1).join(' ')
+        const nameLast = nameParts.length > 1 ? nameParts[nameParts.length - 1] : name
+        const typeLabel = (c.client_type || 'business').replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+        const clientImageUrl = resolveClientImageUrl(c.client_image)
+        const tagsArr = Array.isArray(c.tags) ? c.tags : (c.tags && typeof c.tags === 'string') ? c.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+        const initial = name.charAt(0).toUpperCase()
+        const qrValue = String(c.qrcode || c.client_a_uuid || '').trim()
+        const branches = Array.isArray(c.branch) ? c.branch : (typeof c.branch === 'object' && c.branch !== null) ? [c.branch] : []
+        const lat = parseFloat(c.lat ?? branches[0]?.lat)
+        const lng = parseFloat(c.lng ?? c.long ?? branches[0]?.long)
+        const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng)
+        const mapsUrl = hasCoords ? `https://www.google.com/maps?q=${lat},${lng}` : null
+        const osmUrl = hasCoords ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.02},${lat-0.02},${lng+0.02},${lat+0.02}&layer=mapnik&marker=${lat},${lng}` : null
+
+        const boardingItems = [
+          c.price_range && { icon: '💰', label: 'Price', value: c.price_range },
+          c.timings && { icon: '🕐', label: 'Hours', value: c.timings },
+          c.cuisine && { icon: '🍽', label: 'Cuisine', value: c.cuisine },
+        ].filter(Boolean)
+
+        const stampRows = []
+        const add = (l, v) => { if (v != null && String(v).trim() !== '') stampRows.push({ label: l, value: String(v).trim() }) }
+        add('Meal type', c.meal_type)
+        add('Food type', c.food_type)
+        add('Speciality', c.speciality)
+        add('Category', c.category)
+        if (c.rating) add('Rating', c.rating)
+        add('Indoor / Outdoor', c.indoor_outdoor)
+
+        const whyVisitQuote = c.description
+          ? (c.description.length > 120 ? c.description.slice(0, 120).trim() + '…' : c.description)
+          : 'A must-visit on your Bahrain itinerary.'
+
+        return (
+          <>
+            <div className="vp">
+              <header className="vp-hero">
+                <div className="vp-hero-bg" style={clientImageUrl ? { backgroundImage: `url(${clientImageUrl})` } : undefined} aria-hidden />
+                <div className="vp-hero-gradient" aria-hidden />
+                <div className="vp-hero-lattice" aria-hidden />
+                <div className="vp-hero-inner">
+                  <span className="vp-badge">
+                    <span className="vp-badge-star" aria-hidden>★</span>
+                    Traveler&apos;s Pick
+                  </span>
+                  <div className="vp-logo-ring">
+                    {clientImageUrl ? <img src={clientImageUrl} alt="" className="vp-logo" /> : <div className="vp-logo vp-logo-init">{initial}</div>}
+                  </div>
+                  <h1 className="vp-title">
+                    {nameFirst && <span className="vp-title-shimmer">{nameFirst} </span>}
+                    <span className="vp-title-gold">{nameLast}</span>
+                  </h1>
+                  <p className="vp-type">{typeLabel}</p>
+                  <div className="vp-hero-actions">
+                    <button type="button" className="vp-btn vp-btn-gold" onClick={() => handleStartEdit(c.client_a_uuid)} disabled={loadingClient === c.client_a_uuid}>{loadingClient === c.client_a_uuid ? 'Loading…' : 'Edit Profile'}</button>
+                    <Link to="/posts" className="vp-btn vp-btn-outline">Create Post</Link>
+                    <button type="button" className="vp-btn vp-btn-outline" onClick={() => qrValue && setExpandedQrClient(c)} disabled={!qrValue}>Share</button>
+                  </div>
+                </div>
+              </header>
+
+              {boardingItems.length > 0 && (
+                <section className="vp-boarding">
+                  <div className="vp-boarding-strip">
+                    {boardingItems.map((item, i) => (
+                      <div key={i} className="vp-boarding-cell">
+                        <span className="vp-boarding-label">{item.icon} {item.label}</span>
+                        <span className="vp-boarding-value">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <div className="vp-main">
+                <section className="vp-section vp-about">
+                  <div className="vp-about-grid">
+                    <div className="vp-about-desc">
+                      <h2 className="vp-heading">About</h2>
+                      <p className="vp-desc">{c.description || 'Add a description in Edit Profile to tell visitors why they should visit.'}</p>
+                    </div>
+                    <div className="vp-why-visit">
+                      <div className="vp-why-border" aria-hidden />
+                      <p className="vp-why-quote">&ldquo;{whyVisitQuote}&rdquo;</p>
+                      <span className="vp-why-label">Why visit</span>
+                    </div>
+                  </div>
+                </section>
+
+                {stampRows.length > 0 && (
+                  <section className="vp-section">
+                    <h2 className="vp-heading">Details</h2>
+                    <div className="vp-stamps-grid">
+                      {stampRows.map((row, i) => (
+                        <div key={i} className="vp-stamp-card" style={{ animationDelay: `${i * 0.07}s` }}>
+                          <span className="vp-stamp-label">{row.label}</span>
+                          <span className="vp-stamp-value">{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {branches.length > 0 && (
+                  <section className="vp-section">
+                    <h2 className="vp-heading">Locations</h2>
+                    <div className="vp-branches">
+                      {branches.filter(b => b && (b.area_name || b.lat || b.long)).map((b, i) => (
+                        <div key={i} className="vp-branch-card" style={{ animationDelay: `${i * 0.08}s` }}>
+                          <span className="vp-branch-pin" aria-hidden>📍</span>
+                          <div className="vp-branch-info">
+                            <strong className="vp-branch-name">{b.area_name || b.name || `Branch ${i + 1}`}</strong>
+                            {(b.lat && b.long) && <code className="vp-branch-coords">{b.lat}, {b.long}</code>}
+                          </div>
+                          {(b.lat && b.long) && <a href={`https://www.google.com/maps?q=${b.lat},${b.long}`} target="_blank" rel="noopener noreferrer" className="vp-btn vp-btn-outline vp-btn-sm">Map</a>}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {hasCoords && !branches.length && (
+                  <section className="vp-section">
+                    <h2 className="vp-heading">Location</h2>
+                    <div className="vp-map-card" style={{ animationDelay: '0.08s' }}>
+                      {osmUrl && (
+                        <div className="vp-map-wrap">
+                          <iframe title="Map" src={osmUrl} className="vp-map-iframe" loading="lazy" />
+                          <span className="vp-map-pin" aria-hidden>📍</span>
+                        </div>
+                      )}
+                      <p className="vp-address">Manama, Bahrain</p>
+                      {mapsUrl && <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="vp-btn vp-btn-outline vp-btn-sm">Open in Maps</a>}
+                    </div>
+                  </section>
+                )}
+
+                <section className="vp-section">
+                  <h2 className="vp-heading">Tags</h2>
+                  {tagsArr.length > 0 ? (
+                    <div className="vp-tags">
+                      {tagsArr.map((tag, i) => (
+                        <span key={i} className="vp-tag" style={{ animationDelay: `${i * 0.05}s` }}>
+                          <span className="vp-tag-hole" aria-hidden />
+                          {String(tag).replace(/^#/, '')}
+                        </span>
+                      ))}
+                    </div>
+                  ) : <p className="vp-empty">No tags yet.</p>}
+                </section>
+
+                <section className="vp-section">
+                  <h2 className="vp-heading">Latest posts</h2>
+                  {profilePostsLoading && <p className="vp-empty">Loading…</p>}
+                  {!profilePostsLoading && profilePosts.length === 0 && <p className="vp-empty">No posts yet.</p>}
+                  {!profilePostsLoading && profilePosts.length > 0 && (
+                    <div className="vp-posts">
+                      {profilePosts.map((p, i) => (
+                        <article key={p.post_uuid || p.id} className="vp-post" style={{ animationDelay: `${i * 0.06}s` }}>
+                          <div className="vp-post-img">{p.post_image ? <img src={p.post_image} alt="" /> : <div className="vp-post-ph" />}</div>
+                          <p className="vp-post-cap">{p.description || '—'}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <footer className="vp-seal">
+                <div className="vp-seal-circle">
+                  <span className="vp-seal-palm" aria-hidden>🌴</span>
+                  <span className="vp-seal-text">Kingdom of Bahrain</span>
+                  <span className="vp-seal-sub">Go Bahrain</span>
+                </div>
+              </footer>
+            </div>
+
+            {qrValue && (
+              <button type="button" className="vp-qr-float" onClick={() => setExpandedQrClient(c)} aria-label="Share QR">
+                <QRCodeSVG value={qrValue} size={28} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
+              </button>
+            )}
+
+            {expandedQrClient && (
+              <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">
+                <div className="pf-modal vp-modal" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                  <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
+                  <p className="pf-modal-id">Scan to open this profile</p>
+                  <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
                 </div>
               </div>
             )}
@@ -1030,19 +1342,22 @@ export default function Profile() {
       })()}
 
       {/* ══════════════ EDIT / CREATE FORM ══════════════ */}
-      {(showCreateForm || isEditing || (clients.length === 0 && !loading)) && (
+      {(isEditPage || (!isEditPage && (showCreateForm || isEditing || (clients.length === 0 && !loading)))) && (
         <form onSubmit={isEditing ? handleSubmitUpdate : handleSubmitCreate} className="pf-form">
 
           {/* Form header */}
           <div className="pf-form-header">
-            {clients.length > 0 && (
+            {clients.length > 0 && !isEditPage && (
               <button type="button" className="pf-back" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
                 ← Back
               </button>
             )}
+            {isEditPage && clients.length > 0 && (
+              <Link to="/" className="pf-back">← Back</Link>
+            )}
             <div>
               <h2 className="pf-form-title">{isEditing ? 'Update Profile' : 'Create your profile'}</h2>
-              <p className="pf-form-sub">Fill in your business details below.</p>
+              <p className="pf-form-sub">{isEditPage ? 'Update your business details below.' : 'Fill in your business details below.'}</p>
             </div>
             {form.client_type_choice && form.client_type_choice !== 'none' && (
               <span className="pf-type-chip pf-type-chip-sm">
@@ -1548,12 +1863,15 @@ export default function Profile() {
               {/* Submit */}
               <div className="pf-form-footer">
                 <button type="submit" className="pf-btn pf-btn-primary pf-btn-lg" disabled={loading}>
-                  {loading ? <><span className="pf-spinner" aria-hidden /> Saving…</> : (isEditing ? '✓ Save changes' : '✓ Create profile')}
+                  {loading ? <><span className="pf-spinner" aria-hidden /> Saving…</> : (isEditing ? 'Save changes' : 'Create profile')}
                 </button>
-                {clients.length > 0 && (
+                {!isEditPage && clients.length > 0 && (
                   <button type="button" className="pf-btn pf-btn-ghost" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
                     Cancel
                   </button>
+                )}
+                {isEditPage && (
+                  <Link to="/" className="pf-btn pf-btn-ghost">Cancel</Link>
                 )}
               </div>
             </div>
@@ -1571,4 +1889,75 @@ function CameraIcon({ size = 24 }) {
       <circle cx="12" cy="13" r="4" />
     </svg>
   )
+}
+
+function HdPencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
+}
+
+function HdPostsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  )
+}
+
+function HdShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  )
+}
+
+function HdPinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  )
+}
+
+function HdDetailIcon({ type }) {
+  const p = { viewBox: '0 0 24 24', width: '18', height: '18', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }
+  switch (type) {
+    case 'price':
+      return <svg {...p}><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M2 10h20M2 14h20M6 10v4M10 10v4M14 10v4M18 10v4" /></svg>
+    case 'clock':
+      return <svg {...p}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+    case 'cuisine':
+      return <svg {...p}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7" /></svg>
+    case 'meal':
+      return <svg {...p}><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>
+    case 'food':
+      return <svg {...p}><path d="M3 11l19-9-9 19-2-8-8-2z" /></svg>
+    case 'star':
+      return <svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+    case 'grid':
+      return <svg {...p}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+    case 'door':
+      return <svg {...p}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+    case 'pin':
+      return <svg {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+    case 'people':
+      return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+    case 'event':
+      return <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+    default:
+      return <svg {...p}><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
+  }
 }

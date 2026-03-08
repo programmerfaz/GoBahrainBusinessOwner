@@ -20,6 +20,7 @@ function App() {
           {user ? (
             <>
               <Link to="/">Home</Link>
+              <Link to="/edit">Edit</Link>
               <Link to="/posts">Posts</Link>
               <button type="button" className="btn-link" onClick={logout}>Sign Out</button>
             </>
@@ -36,7 +37,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/signin" element={user ? <Navigate to="/" replace /> : <SignIn />} />
           <Route path="/signup" element={user ? <Navigate to="/" replace /> : <SignUp />} />
-          <Route path="/profile" element={user ? <Profile /> : <Navigate to="/signin" replace />} />
+          <Route path="/profile" element={user ? <Profile mode="dashboard" /> : <Navigate to="/signin" replace />} />
+          <Route path="/edit" element={user ? <Profile mode="edit" /> : <Navigate to="/signin" replace />} />
           <Route path="/profile/:clientId/posts" element={user ? <ClientPosts /> : <Navigate to="/" replace />} />
           <Route path="/posts" element={user ? <Posts /> : <Navigate to="/" replace />} />
         </Routes>
