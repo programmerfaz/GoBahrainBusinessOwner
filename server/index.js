@@ -416,30 +416,18 @@ app.post('/api/submit-profile', async (req, res) => {
       pPlaceClient = { category: form.category?.trim() || '', indoor_outdoor: form.indoor_outdoor || '' }
       pPlace = {
         place_uuid: placeUuid,
-        name: form.place_name?.trim() || '',
-        description: form.place_description?.trim() || '',
+        name: (form.place_name || form.business_name || '').trim() || '',
+        description: (form.place_description || form.description || '').trim() || '',
         opening_time: form.opening_time?.trim() || '',
         closing_time: form.closing_time?.trim() || '',
         entry_cost: form.entry_cost?.trim() || '0',
         suitable_for: form.suitable_for?.trim() || '',
       }
     } else if (typeChoice === 'event_organizer') {
-      const eventUuid = crypto.randomUUID()
+      // Profile only stores organizer details; events are created on the Posts page
       pEvent = {
-        event_uuid: eventUuid,
         event_type: form.event_type?.trim() || '',
         indoor_outdoor: form.event_indoor_outdoor || '',
-        event_name: form.event_name?.trim() || '',
-        name: form.name?.trim() || form.event_name?.trim() || '',
-        status: form.status?.trim() || 'coming_soon',
-        venue: form.venue?.trim() || '',
-        image: String(form.image ?? '').trim() || null,
-        lat: String(form.lat ?? '').trim() || null,
-        long: readLongitude(form),
-        start_date: form.start_date?.trim() || '',
-        end_date: form.end_date?.trim() || '',
-        start_time: form.start_time?.trim() || '',
-        end_time: form.end_time?.trim() || '',
       }
     }
 
@@ -575,29 +563,18 @@ app.put('/api/update-profile', async (req, res) => {
     } else if (typeChoice === 'place') {
       pPlaceClient = { category: form.category?.trim() || '', indoor_outdoor: form.indoor_outdoor || '' }
       pPlace = {
-        name: form.place_name?.trim() || '',
-        description: form.place_description?.trim() || '',
+        name: (form.place_name || form.business_name || '').trim() || '',
+        description: (form.place_description || form.description || '').trim() || '',
         opening_time: form.opening_time?.trim() || '',
         closing_time: form.closing_time?.trim() || '',
         entry_cost: form.entry_cost?.trim() || '0',
         suitable_for: form.suitable_for?.trim() || '',
       }
     } else if (typeChoice === 'event_organizer') {
+      // Profile only updates organizer details; events are created/edited on the Posts page
       pEvent = {
-        event_uuid: form.event_uuid?.trim() || null,
         event_type: form.event_type?.trim() || '',
         indoor_outdoor: form.event_indoor_outdoor || '',
-        event_name: form.event_name?.trim() || '',
-        name: form.name?.trim() || '',
-        status: form.status?.trim() || '',
-        venue: form.venue?.trim() || '',
-        image: String(form.image ?? '').trim() || null,
-        lat: String(form.lat ?? '').trim() || null,
-        long: readLongitude(form),
-        start_date: form.start_date?.trim() || '',
-        end_date: form.end_date?.trim() || '',
-        start_time: form.start_time?.trim() || '',
-        end_time: form.end_time?.trim() || '',
       }
     }
 
@@ -694,7 +671,7 @@ app.post('/api/create-event', async (req, res) => {
     const eventPayload = {
       event_uuid: event.event_uuid || crypto.randomUUID(),
       event_name: event.event_name?.trim() || '',
-      name: event.name?.trim() || event.event_name?.trim() || '',
+      name: event.event_name?.trim() || event.name?.trim() || '',
       status: event.status?.trim() || 'coming_soon',
       venue: event.venue?.trim() || '',
       image: String(event.image ?? '').trim() || null,
@@ -751,7 +728,7 @@ app.put('/api/update-event', async (req, res) => {
 
     const eventPayload = {
       event_name: event.event_name?.trim() || '',
-      name: event.name?.trim() || event.event_name?.trim() || '',
+      name: event.event_name?.trim() || event.name?.trim() || '',
       status: event.status?.trim() || '',
       venue: event.venue?.trim() || '',
       image: String(event.image ?? '').trim() || null,

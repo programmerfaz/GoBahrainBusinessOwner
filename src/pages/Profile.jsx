@@ -53,6 +53,9 @@ const TAG_OPTIONS = [
   'cultural',
   'adventure',
   'family-friendly',
+  'beach',
+  'parks',
+  'scenic',
 ]
 const CUISINE_OPTIONS = [
   'Arabic / Middle Eastern',
@@ -67,6 +70,8 @@ const CUISINE_OPTIONS = [
   'Filipino',
   'International',
   'Cafe',
+  'Pakistani',
+  'Asian',
 ]
 const MEAL_TYPE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 const FOOD_TYPE_OPTIONS = [
@@ -170,22 +175,10 @@ const PLACE_CLIENT_FIELDS = [
   ]},
 ]
 
+// Place-only fields; name, description, opening/closing come from Business Info above
 const PLACE_FIELDS = [
-  { key: 'place_name', label: 'Place Name', type: 'text', required: true, placeholder: 'e.g. Coral Beach' },
-  { key: 'place_description', label: 'Place Description', type: 'textarea', required: false },
-  { key: 'opening_time', label: 'Opening Time', type: 'time', required: false },
-  { key: 'closing_time', label: 'Closing Time', type: 'time', required: false },
-  { key: 'entry_cost', label: 'Entry Cost', type: 'text', required: false },
+  { key: 'entry_cost', label: 'Entry Cost', type: 'number', required: false, min: 0, step: 'any' },
   { key: 'suitable_for', label: 'Suitable For', type: 'text', required: false },
-]
-
-const EVENT_ORGANIZER_FIELDS = [
-  { key: 'event_type', label: 'Event Type', type: 'text', required: true },
-  { key: 'event_indoor_outdoor', label: 'Indoor / Outdoor', type: 'select', required: true, options: [
-    { value: '', label: 'Select...' },
-    { value: 'indoor', label: 'Indoor' },
-    { value: 'outdoor', label: 'Outdoor' },
-  ]},
 ]
 
 const EVENT_FIELDS = [
@@ -218,8 +211,6 @@ const emptyForm = () => ({
   ...Object.fromEntries(PLACE_CLIENT_FIELDS.filter((f) => f.type !== 'select').map((f) => [f.key, ''])),
   indoor_outdoor: '',
   ...Object.fromEntries(PLACE_FIELDS.map((f) => [f.key, ''])),
-  ...Object.fromEntries(EVENT_ORGANIZER_FIELDS.filter((f) => f.type !== 'select').map((f) => [f.key, ''])),
-  event_indoor_outdoor: '',
   ...Object.fromEntries(EVENT_FIELDS.map((f) => [f.key, ''])),
   event_uuid: '',
 })
@@ -256,30 +247,20 @@ function profileToForm(p) {
       }))
       .filter((b) => b.area_name || b.lat || b.long)
   } else if (p.client_type === 'place') {
+    // Single source: name/description/hours come from Business Info; avoid asking twice
+    const name = p.business_name ?? p.place_name ?? p.name ?? ''
+    const desc = p.description ?? p.place_description ?? ''
+    f.business_name = name
+    f.description = desc
+    f.place_name = name
+    f.place_description = desc
     f.category = p.category ?? ''
     f.indoor_outdoor = p.indoor_outdoor ?? ''
-    f.place_name = p.place_name ?? p.name ?? ''
-    f.place_description = p.place_description ?? p.description ?? ''
     f.opening_time = p.opening_time != null ? String(p.opening_time).slice(0, 5) : ''
     f.closing_time = p.closing_time != null ? String(p.closing_time).slice(0, 5) : ''
+    f.timings = p.timings || (f.opening_time && f.closing_time ? `${f.opening_time} - ${f.closing_time}` : '')
     f.entry_cost = p.entry_cost ?? ''
     f.suitable_for = p.suitable_for ?? ''
-  } else if (p.client_type === 'event_organizer') {
-    f.event_type = p.event_type ?? ''
-    f.event_indoor_outdoor = p.indoor_outdoor ?? ''
-    const ev = Array.isArray(p.events) && p.events[0] ? p.events[0] : {}
-    f.event_uuid = ev.event_uuid ?? ''
-    f.event_name = ev.event_name ?? ''
-    f.name = ev.name ?? ev.event_name ?? ''
-    f.image = ev.image ?? ''
-    f.status = ev.status ?? ''
-    f.venue = ev.venue ?? ''
-    f.lat = ev.lat ?? ''
-    f.long = ev.long ?? ''
-    f.start_date = ev.start_date != null ? String(ev.start_date).slice(0, 10) : ''
-    f.end_date = ev.end_date != null ? String(ev.end_date).slice(0, 10) : ''
-    f.start_time = ev.start_time != null ? String(ev.start_time).slice(0, 5) : ''
-    f.end_time = ev.end_time != null ? String(ev.end_time).slice(0, 5) : ''
   }
   if (Array.isArray(p.tags)) {
     f.tags = p.tags.join(', ')
@@ -789,10 +770,6 @@ export default function Profile({ mode }) {
       setError('Category and Indoor/Outdoor are required for Place.')
       return
     }
-    if (form.client_type_choice === 'event_organizer' && (!form.event_type?.trim() || !form.event_indoor_outdoor)) {
-      setError('Event Type and Indoor/Outdoor are required for Event Organizer.')
-      return
-    }
     setError('')
     setPineconeError('')
     setLoading(true)
@@ -801,7 +778,16 @@ export default function Profile({ mode }) {
       const normalizedTags = form.client_type_choice === 'restaurant'
         ? parseTags(form.tags).join(', ')
         : formatAllowedTags(form.tags)
-      const formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, user.account_uuid)
+      let formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, user.account_uuid)
+      if (form.client_type_choice === 'place') {
+        formWithUploads = {
+          ...formWithUploads,
+          place_name: formWithUploads.business_name || formWithUploads.place_name || '',
+          place_description: formWithUploads.description || formWithUploads.place_description || '',
+          opening_time: hours.open || '',
+          closing_time: hours.close || '',
+        }
+      }
       const { supabaseOk, pineconeOk, pineconeError: pe } = await submitProfile(formWithUploads, user.account_uuid)
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
       if (!pineconeOk && pe) setPineconeError(pe)
@@ -839,10 +825,6 @@ export default function Profile({ mode }) {
       setError('Category and Indoor/Outdoor are required for Place.')
       return
     }
-    if (form.client_type_choice === 'event_organizer' && (!form.event_type?.trim() || !form.event_indoor_outdoor)) {
-      setError('Event Type and Indoor/Outdoor are required for Event Organizer.')
-      return
-    }
     setError('')
     setPineconeError('')
     setLoading(true)
@@ -851,7 +833,16 @@ export default function Profile({ mode }) {
       const normalizedTags = form.client_type_choice === 'restaurant'
         ? parseTags(form.tags).join(', ')
         : formatAllowedTags(form.tags)
-      const formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, editingClientId)
+      let formWithUploads = await uploadPendingImages({ ...form, tags: normalizedTags }, editingClientId)
+      if (form.client_type_choice === 'place') {
+        formWithUploads = {
+          ...formWithUploads,
+          place_name: formWithUploads.business_name || formWithUploads.place_name || '',
+          place_description: formWithUploads.description || formWithUploads.place_description || '',
+          opening_time: hours.open || '',
+          closing_time: hours.close || '',
+        }
+      }
       const { supabaseOk, pineconeOk, pineconeError: pe } = await updateProfile(formWithUploads, editingClientId)
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
       if (!pineconeOk && pe) setPineconeError(pe)
@@ -878,7 +869,6 @@ export default function Profile({ mode }) {
 
   const showRestaurantFields = form.client_type_choice === 'restaurant'
   const showPlaceFields = form.client_type_choice === 'place'
-  const showEventOrganizerFields = form.client_type_choice === 'event_organizer'
 
   if (!user) return null
 
@@ -950,7 +940,7 @@ export default function Profile({ mode }) {
         add('Entry Cost', c.entry_cost, 'price')
         add('Suitable For', c.suitable_for, 'people')
         add('Event Type', c.event_type, 'event')
-        add('Event Name', c.event_name ?? c.events?.[0]?.event_name, 'event')
+        add('Indoor / Outdoor', c.indoor_outdoor, 'door')
         add('Venue', c.venue ?? c.events?.[0]?.venue, 'pin')
         add('Status', c.status ?? c.events?.[0]?.status, 'star')
 
@@ -1347,14 +1337,6 @@ export default function Profile({ mode }) {
 
           {/* Form header */}
           <div className="pf-form-header">
-            {clients.length > 0 && !isEditPage && (
-              <button type="button" className="pf-back" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
-                ← Back
-              </button>
-            )}
-            {isEditPage && clients.length > 0 && (
-              <Link to="/" className="pf-back">← Back</Link>
-            )}
             <div>
               <h2 className="pf-form-title">{isEditing ? 'Update Profile' : 'Create your profile'}</h2>
               <p className="pf-form-sub">{isEditPage ? 'Update your business details below.' : 'Fill in your business details below.'}</p>
@@ -1784,78 +1766,10 @@ export default function Profile({ mode }) {
                         <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
                         {f.type === 'textarea'
                           ? <textarea id={`f-${f.key}`} className="pf-input pf-textarea" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} rows={3} />
-                          : <input id={`f-${f.key}`} className="pf-input" type={f.type || 'text'} name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
+                          : <input id={`f-${f.key}`} className="pf-input" type={f.type || 'text'} name={f.key} value={form[f.key] ?? ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} min={f.min} step={f.step} inputMode={f.type === 'number' ? 'decimal' : undefined} />
                         }
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Event-organizer-specific */}
-              {showEventOrganizerFields && (
-                <div className="pf-section-block">
-                  <div className="pf-section-head">
-                    <span className="pf-section-head-icon">🎪</span>
-                    <span className="pf-section-head-label">Event Organizer Details</span>
-                  </div>
-                  <div className="pf-grid">
-                    {EVENT_ORGANIZER_FIELDS.map((f) => (
-                      <div key={f.key} className="pf-field">
-                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
-                        {f.type === 'select'
-                          ? <select id={`f-${f.key}`} className="pf-input" name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
-                              {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
-                          : <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                        }
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pf-section-head" style={{ marginTop: '1.5rem' }}>
-                    <span className="pf-section-head-icon">📅</span>
-                    <span className="pf-section-head-label">Event Details</span>
-                  </div>
-                  {/* Event image */}
-                  <div className="pf-event-image-row">
-                    <div
-                      className="pf-event-photo-widget"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => !uploadingImage && eventImageInputRef.current?.click()}
-                      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !uploadingImage) { e.preventDefault(); eventImageInputRef.current?.click() } }}
-                      aria-label="Upload event image"
-                    >
-                      <input ref={eventImageInputRef} type="file" accept="image/*" onChange={handleEventImageChange} disabled={uploadingImage} className="pf-hidden-input" aria-hidden />
-                      {(eventImagePreview || form.image) ? (
-                        <>
-                          <img src={eventImagePreview || form.image} alt="Event" className="pf-photo-img" />
-                          <div className="pf-photo-overlay">
-                            {uploadingImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={16} /><span>Change</span></>}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="pf-photo-empty">
-                          <CameraIcon size={24} />
-                          <span className="pf-photo-empty-title">{uploadingImage ? 'Uploading…' : 'Event image'}</span>
-                          <span className="pf-photo-empty-hint">Click to upload</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="pf-grid pf-event-fields">
-                      {EVENT_FIELDS.filter((f) => f.type !== 'image').map((f) => (
-                        <div key={f.key} className={`pf-field${f.type === 'textarea' ? ' pf-field-full' : ''}`}>
-                          <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
-                          {f.type === 'select'
-                            ? <select id={`f-${f.key}`} className="pf-input" name={f.key} value={form[f.key] || ''} onChange={handleChange} required={f.required}>
-                                {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                              </select>
-                            : <input id={`f-${f.key}`} className="pf-input" type={f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : 'text'} name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
-                          }
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 </div>
               )}
@@ -1865,14 +1779,6 @@ export default function Profile({ mode }) {
                 <button type="submit" className="pf-btn pf-btn-primary pf-btn-lg" disabled={loading}>
                   {loading ? <><span className="pf-spinner" aria-hidden /> Saving…</> : (isEditing ? 'Save changes' : 'Create profile')}
                 </button>
-                {!isEditPage && clients.length > 0 && (
-                  <button type="button" className="pf-btn pf-btn-ghost" onClick={isEditing ? handleCancelEdit : handleCancelCreate}>
-                    Cancel
-                  </button>
-                )}
-                {isEditPage && (
-                  <Link to="/" className="pf-btn pf-btn-ghost">Cancel</Link>
-                )}
               </div>
             </div>
           </div>

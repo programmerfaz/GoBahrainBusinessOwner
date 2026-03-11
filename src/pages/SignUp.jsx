@@ -76,7 +76,7 @@ export default function SignUp() {
               name="phone"
               value={form.phone}
               onChange={handleChange}
-              placeholder="12345678"
+              placeholder="+973 3212 3456"
             />
           </label>
 
@@ -90,7 +90,7 @@ export default function SignUp() {
             >
               <option value="restaurant">Restaurant</option>
               <option value="place">Place</option>
-              <option value="event_organizer">Event</option>
+              <option value="event_organizer">Event organizer</option>
             </select>
           </label>
 

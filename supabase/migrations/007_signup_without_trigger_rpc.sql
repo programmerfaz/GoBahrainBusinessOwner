@@ -46,22 +46,24 @@ BEGIN
   )
   RETURNING account_uuid INTO v_account_uuid;
 
-  INSERT INTO public.client (account_a_uuid, business_name, client_type)
-  VALUES (v_account_uuid, COALESCE(NULLIF(TRIM(p_name), ''), 'My business'), v_client_type_enum)
+  INSERT INTO public.client (account_a_uuid, business_name, client_type, event_type, indoor_outdoor)
+  VALUES (
+    v_account_uuid,
+    COALESCE(NULLIF(TRIM(p_name), ''), 'My business'),
+    v_client_type_enum,
+    CASE WHEN v_type_text = 'event_organizer' THEN '' ELSE NULL END,
+    CASE WHEN v_type_text = 'event_organizer' THEN '' ELSE NULL END
+  )
   RETURNING client_a_uuid INTO v_client_uuid;
 
   IF v_type_text = 'restaurant' THEN
     INSERT INTO public.restaurant_client (a_uuid, cuisine, meal_type, food_type, speciality, isfoodtruck)
     VALUES (v_client_uuid, '', '', '', '', false);
   ELSIF v_type_text = 'place' THEN
-    INSERT INTO public.place_client (a_uuid, category, indoor_outdoor)
-    VALUES (v_client_uuid, '', '');
-    INSERT INTO public.place (a_uuid, name, description, entry_cost, suitable_for)
-    VALUES (v_client_uuid, COALESCE(NULLIF(TRIM(p_name), ''), 'My place'), '', 0, '');
-  ELSIF v_type_text = 'event_organizer' THEN
-    INSERT INTO public.event_organizer_client (a_uuid, event_type, indoor_outdoor)
-    VALUES (v_client_uuid, '', '');
+    INSERT INTO public.place (client_uuid, name, description, opening_time, closing_time, entry_cost, suitable_for, category, indoor_outdoor)
+    VALUES (v_client_uuid, COALESCE(NULLIF(TRIM(p_name), ''), 'My place'), NULL, NULL, NULL, NULL, NULL, NULL, NULL);
   END IF;
+  -- event_organizer: profile lives on client (event_type, indoor_outdoor); individual events go in public.events
 
   SELECT to_jsonb(a) INTO v_account FROM public.account a WHERE a.account_uuid = v_account_uuid;
   RETURN v_account;

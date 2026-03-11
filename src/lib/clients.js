@@ -26,7 +26,7 @@ export async function getClientsByAccount(accountUuid) {
 }
 
 /**
- * Fetch a single client with full joined subtype (restaurant_client, place_client+place, event_organizer_client)
+ * Fetch a single client with full joined subtype (restaurant_client, place, event_organizer_client)
  */
 export async function getClientFull(clientUuid) {
   if (!supabase) return null

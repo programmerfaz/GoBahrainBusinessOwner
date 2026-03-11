@@ -9,7 +9,6 @@ import HomeContentNav from '../components/HomeContentNav'
 
 const emptyEventForm = () => ({
   event_name: '',
-  name: '',
   status: 'coming_soon',
   venue: '',
   image: '',
@@ -23,7 +22,7 @@ const emptyEventForm = () => ({
   indoor_outdoor: '',
 })
 
-export default function Posts() {
+export default function Posts({ initialSection = 'posts', showTabs = true }) {
   const { user } = useAuth()
   const [clients, setClients] = useState([])
   const [posts, setPosts] = useState([])
@@ -32,7 +31,7 @@ export default function Posts() {
   const [postsLoading, setPostsLoading] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState('posts')
+  const [activeSection, setActiveSection] = useState(initialSection)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreateEvent, setShowCreateEvent] = useState(false)
   const [editingPost, setEditingPost] = useState(null)
@@ -52,6 +51,7 @@ export default function Posts() {
   const eventFileInputRef = useRef(null)
   const editEventFileInputRef = useRef(null)
   const [composePhotoPreview, setComposePhotoPreview] = useState(null)
+  const [eventPhotoPreview, setEventPhotoPreview] = useState(null)
 
   const composeFile = editingPost ? editImageFile : imageFile
   useEffect(() => {
@@ -64,12 +64,33 @@ export default function Posts() {
     return () => URL.revokeObjectURL(url)
   }, [composeFile])
 
+  const eventComposeFile = editingEvent ? editEventImageFile : eventImageFile
+  useEffect(() => {
+    if (eventComposeFile) {
+      const url = URL.createObjectURL(eventComposeFile)
+      setEventPhotoPreview(url)
+      return () => URL.revokeObjectURL(url)
+    }
+    if (editingEvent && (eventForm.image || editingEvent.image)) {
+      setEventPhotoPreview(eventForm.image || editingEvent.image)
+      return
+    }
+    setEventPhotoPreview(null)
+  }, [eventComposeFile, editingEvent, eventForm.image])
+
   const singleClient = clients.length === 1 ? clients[0] : null
   const clientId = singleClient?.client_a_uuid
   const isEventOrganizer = singleClient?.client_type === 'event_organizer'
-  const sectionTabs = isEventOrganizer
+  const sectionTabs = isEventOrganizer && showTabs
     ? [{ id: 'posts', label: 'Posts' }, { id: 'events', label: 'Events' }]
     : [{ id: 'posts', label: 'Posts' }]
+
+  // When tabs are hidden (posts-only or events-only pages), force section to match the initialSection
+  useEffect(() => {
+    if (!showTabs && activeSection !== initialSection) {
+      setActiveSection(initialSection)
+    }
+  }, [showTabs, initialSection, activeSection])
 
   useEffect(() => {
     if (!user?.account_uuid) return
@@ -225,7 +246,6 @@ export default function Posts() {
     setEditEventImageFile(null)
     setEventForm({
       event_name: ev.event_name || '',
-      name: ev.name || '',
       status: ev.status || 'coming_soon',
       venue: ev.venue || '',
       image: ev.image || '',
@@ -351,147 +371,8 @@ export default function Posts() {
 
       {clientId && (
         ((activeSection === 'posts' && posts.length > 0) ||
-          (activeSection === 'events' && isEventOrganizer && (events.length > 0 || showCreateEvent || !!editingEvent))) && (
+          (activeSection === 'events' && isEventOrganizer && events.length > 0)) && (
         <div className="posts-grid">
-          {activeSection === 'events' && showCreateEvent && (
-            <div className="post-card post-card-create">
-              <form onSubmit={handleCreateEvent} className="post-create-form">
-                <h3>New Event</h3>
-                <label>
-                  Event name *
-                  <input
-                    type="text"
-                    value={eventForm.event_name}
-                    onChange={(e) => setEventForm((p) => ({ ...p, event_name: e.target.value }))}
-                    required
-                  />
-                </label>
-                <label>
-                  Display name
-                  <input
-                    type="text"
-                    value={eventForm.name}
-                    onChange={(e) => setEventForm((p) => ({ ...p, name: e.target.value }))}
-                    placeholder="Optional"
-                  />
-                </label>
-                <label>
-                  Event type
-                  <input
-                    type="text"
-                    value={eventForm.event_type}
-                    onChange={(e) => setEventForm((p) => ({ ...p, event_type: e.target.value }))}
-                    placeholder="e.g. music, expo, sports"
-                  />
-                </label>
-                <label>
-                  Indoor / Outdoor
-                  <select
-                    value={eventForm.indoor_outdoor}
-                    onChange={(e) => setEventForm((p) => ({ ...p, indoor_outdoor: e.target.value }))}
-                  >
-                    <option value="">Select...</option>
-                    <option value="indoor">Indoor</option>
-                    <option value="outdoor">Outdoor</option>
-                  </select>
-                </label>
-                <label>
-                  Status
-                  <select
-                    value={eventForm.status}
-                    onChange={(e) => setEventForm((p) => ({ ...p, status: e.target.value }))}
-                  >
-                    <option value="coming_soon">Coming Soon</option>
-                    <option value="active">Active</option>
-                    <option value="completed">Completed</option>
-                    <option value="postponed">Postponed</option>
-                  </select>
-                </label>
-                <label>
-                  Venue
-                  <input
-                    type="text"
-                    value={eventForm.venue}
-                    onChange={(e) => setEventForm((p) => ({ ...p, venue: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Image
-                  <input
-                    ref={eventFileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    onChange={(e) => setEventImageFile(e.target.files?.[0] || null)}
-                  />
-                  {eventImageFile && <span className="file-name">{eventImageFile.name}</span>}
-                </label>
-                <div className="event-datetime-row">
-                  <label>
-                    Start date
-                    <input
-                      type="date"
-                      value={eventForm.start_date}
-                      onChange={(e) => setEventForm((p) => ({ ...p, start_date: e.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    End date
-                    <input
-                      type="date"
-                      value={eventForm.end_date}
-                      onChange={(e) => setEventForm((p) => ({ ...p, end_date: e.target.value }))}
-                    />
-                  </label>
-                </div>
-                <div className="event-datetime-row">
-                  <label>
-                    Start time
-                    <input
-                      type="time"
-                      value={eventForm.start_time}
-                      onChange={(e) => setEventForm((p) => ({ ...p, start_time: e.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    End time
-                    <input
-                      type="time"
-                      value={eventForm.end_time}
-                      onChange={(e) => setEventForm((p) => ({ ...p, end_time: e.target.value }))}
-                    />
-                  </label>
-                </div>
-                <div className="event-datetime-row">
-                  <label>
-                    Latitude
-                    <input
-                      type="text"
-                      value={eventForm.lat}
-                      onChange={(e) => setEventForm((p) => ({ ...p, lat: e.target.value }))}
-                      placeholder="e.g. 26.2285"
-                    />
-                  </label>
-                  <label>
-                    Longitude
-                    <input
-                      type="text"
-                      value={eventForm.long}
-                      onChange={(e) => setEventForm((p) => ({ ...p, long: e.target.value }))}
-                      placeholder="e.g. 50.5860"
-                    />
-                  </label>
-                </div>
-                <div className="form-actions">
-                  <button type="submit" className="btn btn-primary" disabled={creatingEvent}>
-                    {creatingEvent ? 'Creating...' : 'Create event'}
-                  </button>
-                  <button type="button" className="btn btn-outline" onClick={() => setShowCreateEvent(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
           {activeSection === 'posts' && posts.map((p, i) => {
             const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const created = p.created_at ? new Date(p.created_at).toLocaleDateString() : ''
@@ -536,72 +417,6 @@ export default function Posts() {
             const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const evImage = ev.image || ''
             const when = [ev.start_date, ev.start_time].filter(Boolean).join(' ')
-            const isEditing = editingEvent?.event_uuid === ev.event_uuid
-
-            if (isEditing) {
-              return (
-                <div key={ev.event_uuid} className="post-card post-card-create">
-                  <form onSubmit={handleUpdateEvent} className="post-create-form">
-                    <h3>Update Event</h3>
-                    <label>
-                      Event name *
-                      <input type="text" value={eventForm.event_name} onChange={(e) => setEventForm((p) => ({ ...p, event_name: e.target.value }))} required />
-                    </label>
-                    <label>
-                      Display name
-                      <input type="text" value={eventForm.name} onChange={(e) => setEventForm((p) => ({ ...p, name: e.target.value }))} />
-                    </label>
-                    <label>
-                      Event type
-                      <input type="text" value={eventForm.event_type} onChange={(e) => setEventForm((p) => ({ ...p, event_type: e.target.value }))} />
-                    </label>
-                    <label>
-                      Indoor / Outdoor
-                      <select value={eventForm.indoor_outdoor} onChange={(e) => setEventForm((p) => ({ ...p, indoor_outdoor: e.target.value }))}>
-                        <option value="">Select...</option>
-                        <option value="indoor">Indoor</option>
-                        <option value="outdoor">Outdoor</option>
-                      </select>
-                    </label>
-                    <label>
-                      Status
-                      <select value={eventForm.status} onChange={(e) => setEventForm((p) => ({ ...p, status: e.target.value }))}>
-                        <option value="coming_soon">Coming Soon</option>
-                        <option value="active">Active</option>
-                        <option value="completed">Completed</option>
-                        <option value="postponed">Postponed</option>
-                      </select>
-                    </label>
-                    <label>
-                      Venue
-                      <input type="text" value={eventForm.venue} onChange={(e) => setEventForm((p) => ({ ...p, venue: e.target.value }))} />
-                    </label>
-                    <label>
-                      Image
-                      <input ref={editEventFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => setEditEventImageFile(e.target.files?.[0] || null)} />
-                      {editEventImageFile && <span className="file-name">{editEventImageFile.name}</span>}
-                      {!editEventImageFile && evImage && <span className="file-name">Current image</span>}
-                    </label>
-                    <div className="event-datetime-row">
-                      <label>Start date<input type="date" value={eventForm.start_date} onChange={(e) => setEventForm((p) => ({ ...p, start_date: e.target.value }))} /></label>
-                      <label>End date<input type="date" value={eventForm.end_date} onChange={(e) => setEventForm((p) => ({ ...p, end_date: e.target.value }))} /></label>
-                    </div>
-                    <div className="event-datetime-row">
-                      <label>Start time<input type="time" value={eventForm.start_time} onChange={(e) => setEventForm((p) => ({ ...p, start_time: e.target.value }))} /></label>
-                      <label>End time<input type="time" value={eventForm.end_time} onChange={(e) => setEventForm((p) => ({ ...p, end_time: e.target.value }))} /></label>
-                    </div>
-                    <div className="event-datetime-row">
-                      <label>Latitude<input type="text" value={eventForm.lat} onChange={(e) => setEventForm((p) => ({ ...p, lat: e.target.value }))} placeholder="e.g. 26.2285" /></label>
-                      <label>Longitude<input type="text" value={eventForm.long} onChange={(e) => setEventForm((p) => ({ ...p, long: e.target.value }))} placeholder="e.g. 50.5860" /></label>
-                    </div>
-                    <div className="form-actions">
-                      <button type="submit" className="btn btn-primary" disabled={updatingEvent}>{updatingEvent ? 'Saving...' : 'Save'}</button>
-                      <button type="button" className="btn btn-outline" onClick={() => { setEditingEvent(null); setError('') }}>Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              )
-            }
 
             return (
               <div key={ev.event_uuid} className={`post-card post-card-item ${gradientClass}`}>
@@ -762,6 +577,201 @@ export default function Posts() {
                 </button>
                 <button type="submit" className="post-compose-submit" disabled={saving}>
                   {saving ? (editingPost ? 'Saving...' : 'Publishing...') : (editingPost ? 'Save changes' : 'Publish')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'events' && (showCreateEvent || editingEvent) && (
+        <div
+          className="post-compose-backdrop"
+          onClick={() => {
+            setShowCreateEvent(false)
+            setEditingEvent(null)
+            setError('')
+          }}
+          role="presentation"
+        >
+          <div
+            className="post-compose-modal post-compose-modal-events"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="event-compose-title"
+            aria-modal="true"
+          >
+            <div className="post-compose-header">
+              <h2 id="event-compose-title" className="post-compose-title">
+                {editingEvent ? 'Update event' : 'New event'}
+              </h2>
+              <button
+                type="button"
+                className="post-compose-close"
+                onClick={() => { setShowCreateEvent(false); setEditingEvent(null); setError(''); }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              onSubmit={editingEvent ? handleUpdateEvent : handleCreateEvent}
+              className="post-compose-form event-compose-form"
+            >
+              <div className="event-compose-photo post-compose-photo">
+                <input
+                  ref={editingEvent ? editEventFileInputRef : eventFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    if (editingEvent) setEditEventImageFile(file)
+                    else setEventImageFile(file)
+                  }}
+                  id="event-compose-file"
+                  className="post-compose-file-input"
+                />
+                <label htmlFor="event-compose-file" className="post-compose-photo-label">
+                  {eventPhotoPreview ? (
+                    <img src={eventPhotoPreview} alt="" className="post-compose-photo-preview" />
+                  ) : (editingEvent?.image) ? (
+                    <img
+                      src={editingEvent.image}
+                      alt=""
+                      className="post-compose-photo-preview"
+                    />
+                  ) : (
+                    <>
+                      <span className="post-compose-photo-icon">📷</span>
+                      <span className="post-compose-photo-text">Add photo</span>
+                    </>
+                  )}
+                </label>
+              </div>
+
+              <div className="event-compose-field">
+                <label htmlFor="event-compose-name">Event name *</label>
+                <input
+                  id="event-compose-name"
+                  type="text"
+                  required
+                  placeholder="e.g. Summer Concert"
+                  value={eventForm.event_name}
+                  onChange={(e) => setEventForm((p) => ({ ...p, event_name: e.target.value }))}
+                />
+              </div>
+
+              <div className="event-compose-field">
+                <label htmlFor="event-compose-venue">Venue</label>
+                <input
+                  id="event-compose-venue"
+                  type="text"
+                  placeholder="e.g. Bahrain International Circuit"
+                  value={eventForm.venue}
+                  onChange={(e) => setEventForm((p) => ({ ...p, venue: e.target.value }))}
+                />
+              </div>
+
+              <div className="event-compose-field">
+                <label htmlFor="event-compose-type">Event type</label>
+                <input
+                  id="event-compose-type"
+                  type="text"
+                  placeholder="e.g. music, expo, sports"
+                  value={eventForm.event_type}
+                  onChange={(e) => setEventForm((p) => ({ ...p, event_type: e.target.value }))}
+                />
+              </div>
+
+              <div className="event-compose-field">
+                <label htmlFor="event-compose-indoor">Indoor / Outdoor</label>
+                <select
+                  id="event-compose-indoor"
+                  value={eventForm.indoor_outdoor}
+                  onChange={(e) => setEventForm((p) => ({ ...p, indoor_outdoor: e.target.value }))}
+                >
+                  <option value="">Select...</option>
+                  <option value="indoor">Indoor</option>
+                  <option value="outdoor">Outdoor</option>
+                </select>
+              </div>
+
+              <div className="event-compose-field">
+                <label htmlFor="event-compose-status">Status</label>
+                <select
+                  id="event-compose-status"
+                  value={eventForm.status}
+                  onChange={(e) => setEventForm((p) => ({ ...p, status: e.target.value }))}
+                >
+                  <option value="coming_soon">Coming Soon</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="postponed">Postponed</option>
+                </select>
+              </div>
+
+              <div className="event-compose-field">
+                <label>Start date</label>
+                <input
+                  type="date"
+                  value={eventForm.start_date}
+                  onChange={(e) => setEventForm((p) => ({ ...p, start_date: e.target.value }))}
+                />
+              </div>
+              <div className="event-compose-field">
+                <label>End date</label>
+                <input
+                  type="date"
+                  value={eventForm.end_date}
+                  onChange={(e) => setEventForm((p) => ({ ...p, end_date: e.target.value }))}
+                />
+              </div>
+              <div className="event-compose-field">
+                <label>Start time</label>
+                <input
+                  type="time"
+                  value={eventForm.start_time}
+                  onChange={(e) => setEventForm((p) => ({ ...p, start_time: e.target.value }))}
+                />
+              </div>
+              <div className="event-compose-field">
+                <label>End time</label>
+                <input
+                  type="time"
+                  value={eventForm.end_time}
+                  onChange={(e) => setEventForm((p) => ({ ...p, end_time: e.target.value }))}
+                />
+              </div>
+              <div className="event-compose-field">
+                <label>Latitude</label>
+                <input
+                  type="text"
+                  value={eventForm.lat}
+                  onChange={(e) => setEventForm((p) => ({ ...p, lat: e.target.value }))}
+                  placeholder="e.g. 26.2285"
+                />
+              </div>
+              <div className="event-compose-field">
+                <label>Longitude</label>
+                <input
+                  type="text"
+                  value={eventForm.long}
+                  onChange={(e) => setEventForm((p) => ({ ...p, long: e.target.value }))}
+                  placeholder="e.g. 50.5860"
+                />
+              </div>
+
+              <div className="post-compose-actions event-compose-actions">
+                <button
+                  type="button"
+                  className="post-compose-cancel"
+                  onClick={() => { setShowCreateEvent(false); setEditingEvent(null); setError(''); }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="post-compose-submit" disabled={creatingEvent || updatingEvent}>
+                  {creatingEvent ? 'Creating...' : updatingEvent ? 'Saving...' : editingEvent ? 'Save changes' : 'Create event'}
                 </button>
               </div>
             </form>

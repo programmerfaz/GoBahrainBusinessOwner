@@ -55,7 +55,9 @@ BEGIN
     long,
     timings,
     qrcode,
-    tags
+    tags,
+    event_type,
+    indoor_outdoor
   ) VALUES (
     client_uuid,
     (p_client->>'account_a_uuid')::uuid,
@@ -73,7 +75,9 @@ BEGIN
       CASE WHEN jsonb_typeof(COALESCE(p_client->'tags','null'::jsonb)) = 'array' THEN p_client->'tags'
            WHEN TRIM(COALESCE(p_client->>'tags','')) != '' THEN (SELECT COALESCE(jsonb_agg(trimmed), '[]'::jsonb) FROM (SELECT trim(unnest(string_to_array(p_client->>'tags', ','))) AS trimmed) x WHERE trimmed != '')
            ELSE '[]'::jsonb END,
-      '[]'::jsonb)
+      '[]'::jsonb),
+    CASE WHEN v_type_choice = 'event' THEN COALESCE(p_event->>'event_type', '') ELSE NULL END,
+    CASE WHEN v_type_choice = 'event' THEN COALESCE(p_event->>'indoor_outdoor', '') ELSE NULL END
   );
 
   IF v_type_choice = 'restaurant' AND p_restaurant IS NOT NULL THEN
@@ -86,31 +90,21 @@ BEGIN
       COALESCE(p_restaurant->>'speciality', ''),
       COALESCE((p_restaurant->>'isfoodtruck')::boolean, false)
     );
-  ELSIF v_type_choice = 'place' AND p_place_client IS NOT NULL AND p_place IS NOT NULL THEN
-    INSERT INTO public.place_client (a_uuid, category, indoor_outdoor)
+  ELSIF v_type_choice = 'place' AND (p_place_client IS NOT NULL OR p_place IS NOT NULL) THEN
+    INSERT INTO public.place (client_uuid, name, description, opening_time, closing_time, entry_cost, suitable_for, category, indoor_outdoor)
     VALUES (
       client_uuid,
-      COALESCE(p_place_client->>'category', ''),
-      COALESCE(p_place_client->>'indoor_outdoor', '')
-    );
-    INSERT INTO public.place (place_uuid, a_uuid, name, description, opening_time, closing_time, entry_cost, suitable_for)
-    VALUES (
-      (p_place->>'place_uuid')::uuid,
-      client_uuid,
-      COALESCE(p_place->>'name', ''),
-      NULLIF(p_place->>'description', ''),
-      COALESCE(NULLIF(p_place->>'opening_time', ''), ''),
-      COALESCE(NULLIF(p_place->>'closing_time', ''), ''),
-      (CASE WHEN TRIM(COALESCE(p_place->>'entry_cost','')) = '' THEN 0 ELSE (TRIM(p_place->>'entry_cost'))::numeric END),
-      COALESCE(NULLIF(p_place->>'suitable_for', ''), '')
+      COALESCE(p_place->>'name', p_place->>'place_name', ''),
+      NULLIF(TRIM(COALESCE(p_place->>'description', p_place->>'place_description', '')), ''),
+      NULLIF(TRIM(COALESCE(p_place->>'opening_time', '')), ''),
+      NULLIF(TRIM(COALESCE(p_place->>'closing_time', '')), ''),
+      (CASE WHEN TRIM(COALESCE(p_place->>'entry_cost','')) = '' THEN NULL ELSE (TRIM(p_place->>'entry_cost'))::numeric END),
+      NULLIF(TRIM(COALESCE(p_place->>'suitable_for', '')), ''),
+      NULLIF(TRIM(COALESCE(p_place->>'category', p_place_client->>'category', '')), ''),
+      (CASE WHEN TRIM(COALESCE(p_place->>'indoor_outdoor', p_place_client->>'indoor_outdoor', '')) != '' THEN (TRIM(COALESCE(p_place->>'indoor_outdoor', p_place_client->>'indoor_outdoor', '')))::public.indoor_outdoor ELSE NULL END)
     );
   ELSIF v_type_choice = 'event' AND p_event IS NOT NULL THEN
-    INSERT INTO public.event_organizer_client (a_uuid, event_type, indoor_outdoor)
-    VALUES (
-      client_uuid,
-      COALESCE(p_event->>'event_type', ''),
-      COALESCE(p_event->>'indoor_outdoor', '')
-    );
+    -- event_type, indoor_outdoor stored on client above
     INSERT INTO public.events (event_uuid, client_a_uuid, event_name, name, status, venue, lat, "long", start_date, end_date, start_time, end_time)
     VALUES (
       COALESCE((p_event->>'event_uuid')::uuid, gen_random_uuid()),

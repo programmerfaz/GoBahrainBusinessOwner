@@ -56,21 +56,50 @@
   gap: 0.25rem;
 }
 
-.nav a {
+.nav .nav-link {
   color: var(--color-text-muted);
   text-decoration: none;
   font-weight: 500;
   font-size: 1rem;
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius);
-  transition: color 0.2s var(--ease-out), background 0.2s var(--ease-out);
   position: relative;
+  transition: color 0.25s var(--ease-out), text-shadow 0.25s var(--ease-out);
 }
 
-.nav a:hover,
-.nav a.active {
-  color: var(--color-text);
-  background: var(--color-surface-hover);
+.nav .nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.35rem;
+  height: 1px;
+  background: var(--color-primary);
+  opacity: 0;
+  transform: scaleX(0);
+  transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+  transform-origin: center;
+}
+
+.nav .nav-link:hover {
+  color: var(--color-primary);
+  text-shadow: 0 0 12px rgba(234, 179, 8, 0.35);
+}
+
+.nav .nav-link:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.nav .nav-link.active {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-shadow: 0 0 14px rgba(234, 179, 8, 0.4);
+}
+
+.nav .nav-link.active::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .btn-link {
@@ -83,12 +112,32 @@
   border: none;
   font-family: var(--font-body);
   border-radius: var(--radius);
-  transition: color 0.2s var(--ease-out), background 0.2s var(--ease-out);
+  position: relative;
+  transition: color 0.25s var(--ease-out), text-shadow 0.25s var(--ease-out);
+}
+
+.btn-link::after {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.35rem;
+  height: 1px;
+  background: var(--color-primary);
+  opacity: 0;
+  transform: scaleX(0);
+  transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+  transform-origin: center;
 }
 
 .btn-link:hover {
-  color: var(--color-danger);
-  background: var(--color-danger-muted);
+  color: var(--color-primary);
+  text-shadow: 0 0 12px rgba(234, 179, 8, 0.35);
+}
+
+.btn-link:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 /* ─── Main ─── */

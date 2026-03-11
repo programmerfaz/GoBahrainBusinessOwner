@@ -4130,6 +4130,148 @@ a.pf-back:hover { text-decoration: underline; }
   margin-bottom: 1.5rem;
 }
 
+.post-compose-field select {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+
+.post-compose-field select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.event-compose-datetime-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.event-compose-datetime-row label {
+  margin-bottom: 0.35rem;
+}
+
+/* Event compose: landscape layout, no scroll */
+.post-compose-modal-events {
+  max-width: 820px;
+  width: 95vw;
+  max-height: calc(100vh - 2rem);
+  overflow: visible;
+}
+
+.post-compose-modal-events.post-compose-modal {
+  overflow: visible;
+}
+
+.post-compose-modal-events .post-compose-form.event-compose-form {
+  display: grid;
+  grid-template-columns: 180px repeat(4, 1fr);
+  gap: 0.6rem 0.85rem;
+  padding: 1.15rem 1.35rem;
+  max-height: none;
+  overflow: visible;
+}
+
+.event-compose-photo {
+  grid-column: 1;
+  grid-row: 1 / 5;
+  margin-bottom: 0;
+  align-self: start;
+}
+
+.event-compose-photo.post-compose-photo .post-compose-photo-label {
+  min-height: 180px;
+  height: 180px;
+  width: 100%;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-radius: 14px;
+}
+
+.event-compose-photo.post-compose-photo .post-compose-photo-label .post-compose-photo-icon {
+  margin: 0;
+}
+
+.event-compose-photo.post-compose-photo .post-compose-photo-label .post-compose-photo-text {
+  margin: 0;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.event-compose-photo.post-compose-photo .post-compose-photo-preview {
+  height: 180px;
+  width: 100%;
+  min-width: 0;
+  max-width: 180px;
+  object-fit: cover;
+  display: block;
+  border-radius: 14px;
+}
+
+.event-compose-field {
+  margin-bottom: 0;
+}
+
+.event-compose-field label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.35rem;
+}
+
+.event-compose-field input,
+.event-compose-field select {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  font-size: 0.875rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.event-compose-field input:focus,
+.event-compose-field select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.2);
+}
+
+/* Row 1: event name (2-3), venue (4-5) — first field is 2nd child (after photo) */
+.event-compose-form .event-compose-field:nth-of-type(2) { grid-column: 2 / 4; }
+.event-compose-form .event-compose-field:nth-of-type(3) { grid-column: 4 / 6; }
+/* Row 2: type, indoor, status */
+.event-compose-form .event-compose-field:nth-of-type(4) { grid-column: 2; }
+.event-compose-form .event-compose-field:nth-of-type(5) { grid-column: 3; }
+.event-compose-form .event-compose-field:nth-of-type(6) { grid-column: 4 / 6; }
+/* Row 3: start date, end date, start time, end time */
+.event-compose-form .event-compose-field:nth-of-type(7) { grid-column: 2; }
+.event-compose-form .event-compose-field:nth-of-type(8) { grid-column: 3; }
+.event-compose-form .event-compose-field:nth-of-type(9) { grid-column: 4; }
+.event-compose-form .event-compose-field:nth-of-type(10) { grid-column: 5; }
+/* Row 4: lat, long */
+.event-compose-form .event-compose-field:nth-of-type(11) { grid-column: 2; }
+.event-compose-form .event-compose-field:nth-of-type(12) { grid-column: 3; }
+
+.event-compose-actions {
+  grid-column: 1 / -1;
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .post-compose-actions {
   display: flex;
   justify-content: flex-end;
@@ -4236,7 +4378,8 @@ a.pf-back:hover { text-decoration: underline; }
   color: var(--color-text);
 }
 
-.auth-form input {
+.auth-form input,
+.auth-form select {
   width: 100%;
   padding: 0.8rem 1rem;
   border: 1px solid var(--color-border);
@@ -4247,6 +4390,18 @@ a.pf-back:hover { text-decoration: underline; }
   background: rgba(255, 255, 255, 0.03);
   color: var(--color-text);
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-form select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #b8bec8 50%),
+    linear-gradient(135deg, #b8bec8 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
 .auth-form input::placeholder {
@@ -4262,7 +4417,8 @@ a.pf-back:hover { text-decoration: underline; }
   transition: background-color 9999s ease-out 0s;
 }
 
-.auth-form input:focus {
+.auth-form input:focus,
+.auth-form select:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-light);

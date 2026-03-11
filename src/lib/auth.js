@@ -51,7 +51,8 @@ export async function signUp({ email, password, name, phone, clientType }) {
 }
 
 /**
- * Sign in — uses Supabase Auth, then loads account by auth_id (RLS returns current user's row).
+ * Sign in — uses Supabase Auth, then loads account. Never creates account on sign-in (avoids 409).
+ * If account exists by email but auth_id was missing, link_auth_to_existing_account links it.
  */
 export async function signIn(email, password) {
   if (!supabase) throw new Error('Supabase is not configured. Add VITE_SUPABASE_ANON_KEY to your .env file.')
@@ -70,15 +71,10 @@ export async function signIn(email, password) {
   let accountRow = (await supabase.from('account').select('*').maybeSingle()).data
   if (accountRow) return accountForApp(accountRow)
 
-  const user = authData.user
-  const meta = user?.user_metadata || {}
-  const { data: created, error: rpcError } = await supabase.rpc('create_my_account_and_client', {
-    p_email: user?.email ?? '',
-    p_name: meta.name ?? meta.user_name ?? '',
-    p_phone: meta.phone ?? '',
-    p_client_type: meta.client_type ?? 'restaurant',
-  })
-  if (!rpcError && created) return accountForApp(created)
+  // Account not found by auth_id (e.g. old account or auth_id never set). Link existing account to this user.
+  const { data: linked } = await supabase.rpc('link_auth_to_existing_account', { p_email: trimmedEmail })
+  if (linked) return accountForApp(linked)
+
   accountRow = (await supabase.from('account').select('*').maybeSingle()).data
   if (accountRow) return accountForApp(accountRow)
 
