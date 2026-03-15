@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getClientsByAccount, getClientFull } from '../lib/clients'
@@ -309,20 +310,6 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
     )
   }
 
-  // Loading profile
-  if (loading && clients.length === 0) {
-    return (
-      <div className="page dashboard-v2">
-        <section className="dash-hero-v2">
-          <div className="dash-hero-v2-inner">
-            <h1>Welcome, {user?.name}</h1>
-            <p className="clients-loading">Loading...</p>
-          </div>
-        </section>
-      </div>
-    )
-  }
-
   function openCreate() {
     setError('')
     if (activeSection === 'posts') {
@@ -336,6 +323,20 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
       if (eventFileInputRef.current) eventFileInputRef.current.value = ''
       setEventForm(emptyEventForm())
     }
+  }
+
+  // Loading profile
+  if (loading && clients.length === 0) {
+    return (
+      <div className="page dashboard-v2">
+        <section className="dash-hero-v2">
+          <div className="dash-hero-v2-inner">
+            <h1>Welcome, {user?.name}</h1>
+            <p className="clients-loading">Loading...</p>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   const showFab = activeSection === 'posts' || (isEventOrganizer && activeSection === 'events')
@@ -455,152 +456,157 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
         </section>
       )}
 
-      {showFab && (
-        <button
-          type="button"
-          className="posts-fab"
-          onClick={openCreate}
-          aria-label={activeSection === 'posts' ? 'Create a post' : 'Create event'}
-        >
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </button>
-      )}
-
-      {/* Post compose modal (new post or update) */}
-      {activeSection === 'posts' && (showCreate || editingPost) && (
-        <div
-          className="post-compose-backdrop"
-          onClick={() => {
-            setShowCreate(false)
-            setEditingPost(null)
-            setError('')
-          }}
-          role="presentation"
-        >
-          <div
-            className="post-compose-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="post-compose-title"
-            aria-modal="true"
+      {showFab &&
+        createPortal(
+          <button
+            type="button"
+            className="posts-fab"
+            onClick={openCreate}
+            aria-label={activeSection === 'posts' ? 'Create a post' : 'Create event'}
           >
-            <div className="post-compose-header">
-              <h2 id="post-compose-title" className="post-compose-title">
-                {editingPost ? 'Update post' : 'New post'}
-              </h2>
-              <button
-                type="button"
-                className="post-compose-close"
-                onClick={() => { setShowCreate(false); setEditingPost(null); setError(''); }}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>,
+          document.body
+        )}
 
-            <form
-              onSubmit={editingPost ? handleUpdatePost : handleCreatePost}
-              className="post-compose-form"
+      {/* Post compose modal (new post or update) – portaled for correct centering */}
+      {activeSection === 'posts' && (showCreate || editingPost) &&
+        createPortal(
+          <div
+            className="post-compose-backdrop"
+            onClick={() => {
+              setShowCreate(false)
+              setEditingPost(null)
+              setError('')
+            }}
+            role="presentation"
+          >
+            <div
+              className="post-compose-modal"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-labelledby="post-compose-title"
+              aria-modal="true"
             >
-              <div className="post-compose-photo">
-                <input
-                  ref={editingPost ? editFileInputRef : fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    if (editingPost) setEditImageFile(file)
-                    else setImageFile(file)
-                  }}
-                  id="post-compose-file"
-                  className="post-compose-file-input"
-                />
-                <label htmlFor="post-compose-file" className="post-compose-photo-label">
-                  {composePhotoPreview ? (
-                    <img src={composePhotoPreview} alt="" className="post-compose-photo-preview" />
-                  ) : (editingPost?.post_image || editingPost?.image_url) ? (
-                    <img
-                      src={editingPost.post_image || editingPost.image_url}
-                      alt=""
-                      className="post-compose-photo-preview"
-                    />
-                  ) : (
-                    <>
-                      <span className="post-compose-photo-icon">📷</span>
-                      <span className="post-compose-photo-text">Add photo</span>
-                    </>
-                  )}
-                </label>
-              </div>
-
-              <div className="post-compose-field">
-                <label htmlFor="post-compose-desc">What's this about? *</label>
-                <textarea
-                  id="post-compose-desc"
-                  required
-                  rows={4}
-                  placeholder="Describe your post..."
-                  value={editingPost ? editForm.description : createForm.description}
-                  onChange={(e) =>
-                    editingPost
-                      ? setEditForm((prev) => ({ ...prev, description: e.target.value }))
-                      : setCreateForm((p) => ({ ...p, description: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="post-compose-field post-compose-price-wrap">
-                <label htmlFor="post-compose-price">Price (optional)</label>
-                <input
-                  id="post-compose-price"
-                  type="text"
-                  placeholder="e.g. 5–20 BHD"
-                  value={editingPost ? editForm.priceRange : createForm.priceRange}
-                  onChange={(e) =>
-                    editingPost
-                      ? setEditForm((prev) => ({ ...prev, priceRange: e.target.value }))
-                      : setCreateForm((p) => ({ ...p, priceRange: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="post-compose-actions">
+              <div className="post-compose-header">
+                <h2 id="post-compose-title" className="post-compose-title">
+                  {editingPost ? 'Update post' : 'New post'}
+                </h2>
                 <button
                   type="button"
-                  className="post-compose-cancel"
+                  className="post-compose-close"
                   onClick={() => { setShowCreate(false); setEditingPost(null); setError(''); }}
+                  aria-label="Close"
                 >
-                  Cancel
-                </button>
-                <button type="submit" className="post-compose-submit" disabled={saving}>
-                  {saving ? (editingPost ? 'Saving...' : 'Publishing...') : (editingPost ? 'Save changes' : 'Publish')}
+                  ×
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {activeSection === 'events' && (showCreateEvent || editingEvent) && (
-        <div
-          className="post-compose-backdrop"
-          onClick={() => {
-            setShowCreateEvent(false)
-            setEditingEvent(null)
-            setError('')
-          }}
-          role="presentation"
-        >
+              <form
+                onSubmit={editingPost ? handleUpdatePost : handleCreatePost}
+                className="post-compose-form"
+              >
+                <div className="post-compose-photo">
+                  <input
+                    ref={editingPost ? editFileInputRef : fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null
+                      if (editingPost) setEditImageFile(file)
+                      else setImageFile(file)
+                    }}
+                    id="post-compose-file"
+                    className="post-compose-file-input"
+                  />
+                  <label htmlFor="post-compose-file" className="post-compose-photo-label">
+                    {composePhotoPreview ? (
+                      <img src={composePhotoPreview} alt="" className="post-compose-photo-preview" />
+                    ) : (editingPost?.post_image || editingPost?.image_url) ? (
+                      <img
+                        src={editingPost.post_image || editingPost.image_url}
+                        alt=""
+                        className="post-compose-photo-preview"
+                      />
+                    ) : (
+                      <>
+                        <span className="post-compose-photo-icon">📷</span>
+                        <span className="post-compose-photo-text">Add photo</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+
+                <div className="post-compose-field">
+                  <label htmlFor="post-compose-desc">What's this about? *</label>
+                  <textarea
+                    id="post-compose-desc"
+                    required
+                    rows={4}
+                    placeholder="Describe your post..."
+                    value={editingPost ? editForm.description : createForm.description}
+                    onChange={(e) =>
+                      editingPost
+                        ? setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                        : setCreateForm((p) => ({ ...p, description: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <div className="post-compose-field post-compose-price-wrap">
+                  <label htmlFor="post-compose-price">Price (optional)</label>
+                  <input
+                    id="post-compose-price"
+                    type="text"
+                    placeholder="e.g. 5–20 BHD"
+                    value={editingPost ? editForm.priceRange : createForm.priceRange}
+                    onChange={(e) =>
+                      editingPost
+                        ? setEditForm((prev) => ({ ...prev, priceRange: e.target.value }))
+                        : setCreateForm((p) => ({ ...p, priceRange: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <div className="post-compose-actions">
+                  <button
+                    type="button"
+                    className="post-compose-cancel"
+                    onClick={() => { setShowCreate(false); setEditingPost(null); setError(''); }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="post-compose-submit" disabled={saving}>
+                    {saving ? (editingPost ? 'Saving...' : 'Publishing...') : (editingPost ? 'Save changes' : 'Publish')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {activeSection === 'events' && (showCreateEvent || editingEvent) &&
+        createPortal(
           <div
-            className="post-compose-modal post-compose-modal-events"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="event-compose-title"
-            aria-modal="true"
+            className="post-compose-backdrop"
+            onClick={() => {
+              setShowCreateEvent(false)
+              setEditingEvent(null)
+              setError('')
+            }}
+            role="presentation"
           >
+            <div
+              className="post-compose-modal post-compose-modal-events"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-labelledby="event-compose-title"
+              aria-modal="true"
+            >
             <div className="post-compose-header">
               <h2 id="event-compose-title" className="post-compose-title">
                 {editingEvent ? 'Update event' : 'New event'}
@@ -776,8 +782,9 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body
+        )}
     </div>
   )
 }

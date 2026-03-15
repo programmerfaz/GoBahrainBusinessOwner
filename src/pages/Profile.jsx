@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import './ProfileDashboard.css'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../context/AuthContext'
 import { getClientsByAccount, getClientFull, fetchTagsFromPinecone } from '../lib/clients'
@@ -901,8 +902,7 @@ export default function Profile({ mode }) {
 
       {/* Dashboard empty state: no profile yet */}
       {isDashboard && !loading && clients.length === 0 && (
-        <div className="pf-card pf-empty-dashboard">
-          <div className="pf-card-accent" aria-hidden />
+        <div className="pf-empty-dashboard">
           <h2 className="pf-form-title">No profile yet</h2>
           <p className="pf-form-sub">Create your business profile to get started.</p>
           <Link to="/edit" className="pf-btn pf-btn-primary pf-btn-lg">Create profile</Link>
@@ -926,8 +926,24 @@ export default function Profile({ mode }) {
         const mapsUrl = hasCoords ? `https://www.google.com/maps?q=${lat},${lng}` : null
         const osmUrl = hasCoords ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.02},${lat - 0.02},${lng + 0.02},${lat + 0.02}&layer=mapnik&marker=${lat},${lng}` : null
 
+        const DETAIL_SUBLINES = {
+          'Price Range': 'What visitors can expect to spend',
+          'Hours': 'When you\'re open',
+          'Cuisine': 'What\'s on the menu',
+          'Meal Type': 'Breakfast, lunch, dinner & more',
+          'Food Type': 'Diet and style',
+          'Speciality': 'What you\'re known for',
+          'Category': 'Type of place',
+          'Indoor / Outdoor': 'Setting',
+          'Place': 'Location or area',
+          'Entry Cost': 'Admission or entry fee',
+          'Suitable For': 'Who it\'s best for',
+          'Event Type': 'Kind of event',
+          'Venue': 'Where it happens',
+          'Status': 'Current status',
+        }
         const detailItems = []
-        const add = (label, value, icon) => { if (value != null && String(value).trim() !== '') detailItems.push({ label, value: String(value).trim(), icon }) }
+        const add = (label, value, icon) => { if (value != null && String(value).trim() !== '') detailItems.push({ label, value: String(value).trim(), icon, subline: DETAIL_SUBLINES[label] }) }
         add('Price Range', c.price_range, 'price')
         add('Hours', c.timings, 'clock')
         add('Cuisine', c.cuisine, 'cuisine')
@@ -951,170 +967,247 @@ export default function Profile({ mode }) {
         return (
           <>
             <div className="hd-page">
-              {/* Top section: hero-style header */}
-              <header className="hd-header">
-                <div className="hd-header-inner">
-                  <div className="hd-logo-wrap">
-                    <div className="hd-logo-circle">
-                      {clientImageUrl ? <img src={clientImageUrl} alt={name} /> : <span>{initial}</span>}
-                    </div>
+
+              {/* ── HERO ── */}
+              <header className="hd-hero">
+                <div className="hd-hero-avatar">
+                  {clientImageUrl ? <img src={clientImageUrl} alt={name} /> : <span>{initial}</span>}
+                </div>
+                <div className="hd-hero-text">
+                  <p className="hd-hero-eyebrow">Your Listing</p>
+                  <h1 className="hd-hero-name">{name}</h1>
+                  <div className="hd-hero-meta">
+                    <span className="hd-hero-badge">{typeLabel}</span>
                   </div>
-                  <div className="hd-identity">
-                    <h1 className="hd-name">{name}</h1>
-                    <span className="hd-type-badge">{typeLabel}</span>
-                  </div>
+                  {qrValue && (
+                    <button
+                      type="button"
+                      className="hd-hero-qr"
+                      onClick={() => setExpandedQrClient(c)}
+                      aria-label="Open QR code"
+                      title="Scan"
+                    >
+                      <QRCodeSVG value={qrValue} size={172} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
+                      <div className="hd-hero-qr-sub">Scan</div>
+                    </button>
+                  )}
                 </div>
               </header>
 
-              {/* Body */}
-              <div className="hd-body">
-                {/* Left column */}
-                <div className="hd-col-left">
-                  {descSnippet && (
-                    <div className="hd-desc-card">
-                      <p className="hd-desc-text">{descSnippet}</p>
-                    </div>
-                  )}
-
-                  {detailItems.length > 0 && (
-                    <div className="hd-card">
-                      <h2 className="hd-card-title">Details</h2>
-                      <div className="hd-details-grid">
-                        {detailItems.map((item, i) => (
-                          <div
-                            key={i}
-                            className={`hd-detail-item${item.label === 'Price Range' ? ' hd-detail-item--price' : ''}`}
-                          >
-                            <div className="hd-detail-icon"><HdDetailIcon type={item.icon} /></div>
-                            <span className="hd-detail-label">{item.label}</span>
-                            <span className="hd-detail-value">
-                              {item.label === 'Price Range' && item.value ? (
-                                <>
-                                  {item.value.replace(/\s*BHD\s*$/i, '').trim()}
-                                  <span className="hd-detail-currency"> BHD</span>
-                                </>
-                              ) : item.value}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {tagsArr.length > 0 && (
-                    <div className="hd-card">
-                      <h2 className="hd-card-title">Tags</h2>
-                      <div className="hd-tags-row">
-                        {tagsArr.map((tag, i) => (
-                          <span key={i} className={`hd-tag hd-tag-${(i % 5) + 1}`}>
-                            #{String(tag).replace(/^#/, '')}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {detailItems.length === 0 && tagsArr.length === 0 && !descSnippet && (
-                    <div className="hd-card hd-empty-card">
-                      <h2 className="hd-empty-title">Build your profile</h2>
-                      <p className="hd-empty-text">Add details, tags, and locations so customers can find you.</p>
-                      <Link to="/edit" className="hd-btn hd-btn-edit">Update profile</Link>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right column */}
-                <div className="hd-col-right">
-                  {(profilePostsLoading || profilePosts.length > 0) && (
-                    <div className="hd-card">
-                      <h2 className="hd-card-title">Menu Highlights Gallery</h2>
-                      {profilePostsLoading ? (
-                        <p className="hd-gallery-loading">Loading…</p>
-                      ) : (
-                        <div className="hd-gallery">
-                          {profilePosts.slice(0, 3).map((post, i) => (
-                            <div key={post.post_uuid || i} className="hd-gallery-item">
-                              {post.post_image
-                                ? <img src={post.post_image} alt="" loading="lazy" />
-                                : <div className="hd-gallery-ph" />
-                              }
+              {/* ── ABOUT ── */}
+              {descSnippet && (
+                <div className="hd-band">
+                  <div className="hd-about-grid">
+                    <div className="hd-about-left">
+                      <p className="hd-band-label">About</p>
+                      <h2 className="hd-band-title">What your listing says</h2>
+                      <p className="hd-band-sub">{descSnippet}</p>
+                      {(c.price_range || c.timings || c.cuisine) && (
+                        <div className="hd-about-stat-row">
+                          {c.price_range && (
+                            <div className="hd-about-stat">
+                              <span className="hd-about-stat-lbl">Price Range</span>
+                              <span className="hd-about-stat-num">{c.price_range.replace(/\s*BHD\s*$/i,'').trim()} <span className="hd-detail-currency">BHD</span></span>
                             </div>
-                          ))}
+                          )}
+                          {c.timings && (
+                            <div className="hd-about-stat">
+                              <span className="hd-about-stat-lbl">Opening Hours</span>
+                              <span className="hd-about-stat-num">{c.timings}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="hd-about-right">
+                      {(c.cuisine || c.meal_type || c.food_type) && (
+                        <>
+                          {c.cuisine && (
+                            <div className="hd-detail-row">
+                              <div className="hd-detail-icon-wrap">
+                                <HdDetailIcon type="cuisine" />
+                              </div>
+                              <div className="hd-detail-label-wrap">
+                                <span className="hd-detail-label">Cuisine</span>
+                                <span className="hd-detail-subline">What's on the menu</span>
+                              </div>
+                              <span className="hd-detail-value">{c.cuisine}</span>
+                            </div>
+                          )}
+                          {c.meal_type && (
+                            <div className="hd-detail-row">
+                              <div className="hd-detail-icon-wrap">
+                                <HdDetailIcon type="meal" />
+                              </div>
+                              <div className="hd-detail-label-wrap">
+                                <span className="hd-detail-label">Meal Type</span>
+                                <span className="hd-detail-subline">Breakfast, lunch & more</span>
+                              </div>
+                              <span className="hd-detail-value">{c.meal_type}</span>
+                            </div>
+                          )}
+                          {c.food_type && (
+                            <div className="hd-detail-row">
+                              <div className="hd-detail-icon-wrap">
+                                <HdDetailIcon type="food" />
+                              </div>
+                              <div className="hd-detail-label-wrap">
+                                <span className="hd-detail-label">Food Type</span>
+                                <span className="hd-detail-subline">Diet and style</span>
+                              </div>
+                              <span className="hd-detail-value">{c.food_type}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── DETAILS ── */}
+              {detailItems.length > 0 && (
+                <div className="hd-band">
+                  <div className="hd-band-header-row">
+                    <p className="hd-band-label">Details</p>
+                    <Link to="/edit" className="hd-action-btn hd-action-btn-primary">Edit Profile</Link>
+                  </div>
+                  <h2 className="hd-band-title">Opening hours, pricing & more</h2>
+                  <p className="hd-band-sub">Everything at a glance — what you offer and how to find you.</p>
+                  <div className="hd-details-split">
+                    {detailItems.map((item, i) => (
+                      <div key={i} className="hd-detail-row">
+                        <div className="hd-detail-icon-wrap">
+                          <HdDetailIcon type={item.icon} />
+                        </div>
+                        <div className="hd-detail-label-wrap">
+                          <span className="hd-detail-label">
+                            {item.label}
+                            {item.label === 'Price Range' && <span className="hd-detail-hint"> · per person</span>}
+                          </span>
+                          {item.subline && <span className="hd-detail-subline">{item.subline}</span>}
+                        </div>
+                        <span className="hd-detail-value">
+                          {item.label === 'Price Range' && item.value ? (
+                            <>{item.value.replace(/\s*BHD\s*$/i, '').trim()}<span className="hd-detail-currency"> BHD</span></>
+                          ) : item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── GALLERY ── */}
+              {(profilePostsLoading || profilePosts.length > 0) && (
+                <div className="hd-band">
+                  <div className="hd-band-header-row">
+                    <p className="hd-band-label">Gallery</p>
+                    <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
+                  </div>
+                  <h2 className="hd-band-title">Menu Highlights</h2>
+                  <p className="hd-band-sub">Your latest posts — hover to explore.</p>
+                  {profilePostsLoading ? (
+                    <p style={{color:'rgba(255,255,255,0.3)',fontSize:'0.875rem'}}>Loading…</p>
+                  ) : (
+                    <div className="hd-mosaic">
+                      {profilePosts.slice(0, 3).map((post, i) => (
+                        <div key={post.post_uuid || i} className={i === 0 ? 'hd-mosaic-main' : 'hd-mosaic-item'}>
+                          {post.post_image
+                            ? <img src={post.post_image} alt="" loading="lazy" />
+                            : <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">No image</span></div>
+                          }
+                          <div className="hd-mosaic-caption">
+                            <span>{post.description || '—'}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {profilePosts.length < 2 && (
+                        <div className="hd-mosaic-item">
+                          <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                        </div>
+                      )}
+                      {profilePosts.length < 3 && (
+                        <div className="hd-mosaic-item">
+                          <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
                         </div>
                       )}
                     </div>
                   )}
+                </div>
+              )}
 
-                  {(activeBranches.length > 0 || hasCoords) && (
-                    <div className="hd-card">
-                      <h2 className="hd-card-title">Locations</h2>
-                      <div className="hd-location-layout">
-                        {osmUrl && (
-                          <div className="hd-map-block">
-                            <iframe
-                              title="Map"
-                              src={osmUrl}
-                              className="hd-map-iframe"
-                              loading="lazy"
-                              sandbox="allow-scripts allow-same-origin"
-                            />
-                          </div>
-                        )}
-                        <div className="hd-location-info">
-                          {activeBranches.length > 0 ? activeBranches.map((b, i) => (
-                            <div key={i} className="hd-location-entry">
-                              <div className="hd-location-pin-row">
-                                <HdPinIcon />
-                                <div>
-                                  <p className="hd-location-name">{b.area_name || `Branch ${i + 1}`}</p>
-                                  {b.area_name && <p className="hd-location-addr">{b.area_name}, Bahrain</p>}
-                                </div>
-                              </div>
-                              {b.lat && b.long && (
-                                <a
-                                  href={`https://www.google.com/maps?q=${b.lat},${b.long}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="hd-btn-directions"
-                                >
-                                  Get Directions
-                                </a>
-                              )}
-                            </div>
-                          )) : (
-                            <div className="hd-location-entry">
-                              <div className="hd-location-pin-row">
-                                <HdPinIcon />
-                                <div>
-                                  <p className="hd-location-name">Manama, Bahrain</p>
-                                  <p className="hd-location-addr">Bahrain</p>
-                                </div>
-                              </div>
-                              {mapsUrl && (
-                                <a
-                                  href={mapsUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="hd-btn-directions"
-                                >
-                                  Get Directions
-                                </a>
-                              )}
-                            </div>
+              {/* ── TAGS ── */}
+              {tagsArr.length > 0 && (
+                <div className="hd-band">
+                  <p className="hd-band-label">Tags</p>
+                  <h2 className="hd-band-title">How visitors find you</h2>
+                  <p className="hd-band-sub">Search keywords that connect your listing to the right audience.</p>
+                  <div className="hd-tags-row">
+                    {tagsArr.map((tag, i) => (
+                      <span key={i} className="hd-tag">#{String(tag).replace(/^#/, '')}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── LOCATIONS ── */}
+              {(activeBranches.length > 0 || hasCoords) && (
+                <div className="hd-band">
+                  <p className="hd-band-label">Locations</p>
+                  <h2 className="hd-band-title">Where to find us</h2>
+                  <p className="hd-band-sub">Tap a location to get directions from your current position.</p>
+                  <div className="hd-locations-grid">
+                    {osmUrl && (
+                      <div className="hd-map-wrap">
+                        <iframe
+                          title="Map"
+                          src={osmUrl}
+                          className="hd-map-iframe"
+                          loading="lazy"
+                          sandbox="allow-scripts allow-same-origin"
+                        />
+                      </div>
+                    )}
+                    <div className="hd-locations-list">
+                      {activeBranches.length > 0 ? activeBranches.map((b, i) => (
+                        <div key={i} className="hd-location-entry">
+                          <span className="hd-location-idx">Location {i + 1}</span>
+                          <span className="hd-location-name">{b.area_name || `Branch ${i + 1}`}</span>
+                          {b.area_name && <span className="hd-location-addr">{b.area_name}, Bahrain</span>}
+                          {b.lat && b.long && (
+                            <a href={`https://www.google.com/maps?q=${b.lat},${b.long}`} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
+                              Get directions →
+                            </a>
                           )}
                         </div>
-                      </div>
+                      )) : (
+                        <div className="hd-location-entry">
+                          <span className="hd-location-idx">Location 1</span>
+                          <span className="hd-location-name">Manama, Bahrain</span>
+                          <span className="hd-location-addr">Bahrain</span>
+                          {mapsUrl && (
+                            <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
+                              Get directions →
+                            </a>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* ── EMPTY STATE ── */}
+              {detailItems.length === 0 && tagsArr.length === 0 && !descSnippet && (
+                <div className="hd-empty-band">
+                  <h2 className="hd-empty-title">Build your profile</h2>
+                  <p className="hd-empty-text">Add details, tags, and locations so customers can discover you.</p>
+                </div>
+              )}
+
             </div>
 
-            {qrValue && (
-              <button type="button" className="vp-qr-float" onClick={() => setExpandedQrClient(c)} aria-label="Share QR">
-                <QRCodeSVG value={qrValue} size={28} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
-              </button>
-            )}
             {expandedQrClient && (
               <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">
                 <div className="pf-modal vp-modal" onClick={(e) => e.stopPropagation()}>
@@ -1213,6 +1306,7 @@ export default function Profile({ mode }) {
                   <div className="vp-about-grid">
                     <div className="vp-about-desc">
                       <h2 className="vp-heading">About</h2>
+                      <p className="vp-section-intro">A short intro for travelers and locals discovering your place</p>
                       <p className="vp-desc">{c.description || 'Add a description in Edit Profile to tell visitors why they should visit.'}</p>
                     </div>
                     <div className="vp-why-visit">
@@ -1226,27 +1320,28 @@ export default function Profile({ mode }) {
                 {stampRows.length > 0 && (
                   <section className="vp-section">
                     <h2 className="vp-heading">Details</h2>
-                    <div className="vp-stamps-grid">
+                    <p className="vp-section-intro">What to expect — meal types, specialities, and more</p>
+                    <dl className="vp-detail-list">
                       {stampRows.map((row, i) => (
-                        <div key={i} className="vp-stamp-card" style={{ animationDelay: `${i * 0.07}s` }}>
-                          <span className="vp-stamp-label">{row.label}</span>
-                          <span className="vp-stamp-value">{row.value}</span>
+                        <div key={i} className="vp-detail-row">
+                          <dt className="vp-detail-label">{row.label}</dt>
+                          <dd className="vp-detail-value">{row.value}</dd>
                         </div>
                       ))}
-                    </div>
+                    </dl>
                   </section>
                 )}
 
                 {branches.length > 0 && (
                   <section className="vp-section">
                     <h2 className="vp-heading">Locations</h2>
-                    <div className="vp-branches">
+                    <p className="vp-section-intro">Find this spot on the map — open in Google Maps for directions</p>
+                    <div className="vp-branch-list">
                       {branches.filter(b => b && (b.area_name || b.lat || b.long)).map((b, i) => (
-                        <div key={i} className="vp-branch-card" style={{ animationDelay: `${i * 0.08}s` }}>
-                          <span className="vp-branch-pin" aria-hidden>📍</span>
+                        <div key={i} className="vp-branch-row">
                           <div className="vp-branch-info">
                             <strong className="vp-branch-name">{b.area_name || b.name || `Branch ${i + 1}`}</strong>
-                            {(b.lat && b.long) && <code className="vp-branch-coords">{b.lat}, {b.long}</code>}
+                            {(b.lat && b.long) && <span className="vp-branch-coords">{b.lat}, {b.long}</span>}
                           </div>
                           {(b.lat && b.long) && <a href={`https://www.google.com/maps?q=${b.lat},${b.long}`} target="_blank" rel="noopener noreferrer" className="vp-btn vp-btn-outline vp-btn-sm">Map</a>}
                         </div>
@@ -1258,11 +1353,11 @@ export default function Profile({ mode }) {
                 {hasCoords && !branches.length && (
                   <section className="vp-section">
                     <h2 className="vp-heading">Location</h2>
-                    <div className="vp-map-card" style={{ animationDelay: '0.08s' }}>
+                    <p className="vp-section-intro">Where to find you — open in Maps for directions</p>
+                    <div className="vp-map-block">
                       {osmUrl && (
                         <div className="vp-map-wrap">
                           <iframe title="Map" src={osmUrl} className="vp-map-iframe" loading="lazy" />
-                          <span className="vp-map-pin" aria-hidden>📍</span>
                         </div>
                       )}
                       <p className="vp-address">Manama, Bahrain</p>
@@ -1273,11 +1368,11 @@ export default function Profile({ mode }) {
 
                 <section className="vp-section">
                   <h2 className="vp-heading">Tags</h2>
+                  <p className="vp-section-intro">Topics and vibes — how people might discover you</p>
                   {tagsArr.length > 0 ? (
                     <div className="vp-tags">
                       {tagsArr.map((tag, i) => (
-                        <span key={i} className="vp-tag" style={{ animationDelay: `${i * 0.05}s` }}>
-                          <span className="vp-tag-hole" aria-hidden />
+                        <span key={i} className="vp-tag">
                           {String(tag).replace(/^#/, '')}
                         </span>
                       ))}
@@ -1287,6 +1382,7 @@ export default function Profile({ mode }) {
 
                 <section className="vp-section">
                   <h2 className="vp-heading">Latest posts</h2>
+                  <p className="vp-section-intro">Recent updates and highlights from your profile</p>
                   {profilePostsLoading && <p className="vp-empty">Loading…</p>}
                   {!profilePostsLoading && profilePosts.length === 0 && <p className="vp-empty">No posts yet.</p>}
                   {!profilePostsLoading && profilePosts.length > 0 && (
@@ -1310,12 +1406,6 @@ export default function Profile({ mode }) {
                 </div>
               </footer>
             </div>
-
-            {qrValue && (
-              <button type="button" className="vp-qr-float" onClick={() => setExpandedQrClient(c)} aria-label="Share QR">
-                <QRCodeSVG value={qrValue} size={28} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
-              </button>
-            )}
 
             {expandedQrClient && (
               <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">

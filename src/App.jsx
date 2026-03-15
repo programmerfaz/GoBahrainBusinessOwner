@@ -1,6 +1,16 @@
 import { Routes, Route, Link, NavLink, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import Home from './pages/Home'
+
+const THEME_KEY = 'gobahrain-theme'
+
+function getInitialTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch (_) {}
+  return 'dark'
+}
 import Profile from './pages/Profile'
 import Posts from './pages/Posts'
 import ClientPosts from './pages/ClientPosts'
@@ -13,7 +23,15 @@ import './pages/index.css'
 
 function App() {
   const { user, logout } = useAuth()
+  const [theme, setTheme] = useState(getInitialTheme)
   const [isEventOrganizer, setIsEventOrganizer] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch (_) {}
+  }, [theme])
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +61,15 @@ function App() {
       <header className="header">
         <Link to="/" className="logo">Go Bahrain</Link>
         <nav className="nav">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          >
+            {theme === 'dark' ? '☀' : '🌙'}
+          </button>
           {user ? (
             <>
               <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Home</NavLink>
@@ -71,8 +98,55 @@ function App() {
           <Route path="/events" element={user ? <Posts initialSection="events" showTabs={false} /> : <Navigate to="/" replace />} />
         </Routes>
       </main>
-      <footer className="footer">
-        <p>Go Bahrain &middot; Tourism &amp; Business Platform &middot; Kingdom of Bahrain</p>
+      <footer className="footer gb-footer">
+        <div className="gb-footer-surface">
+          <div className="gb-footer-top">
+            <div className="gb-footer-brand">
+              <div className="gb-footer-mark" aria-hidden>
+                <span className="gb-footer-mark-dot" />
+                <span className="gb-footer-mark-dot" />
+                <span className="gb-footer-mark-dot" />
+                <span className="gb-footer-mark-dot" />
+              </div>
+              <div className="gb-footer-brand-text">
+                <div className="gb-footer-logo">Go Bahrain</div>
+                <div className="gb-footer-tagline">Find. Book. Explore.</div>
+              </div>
+            </div>
+
+            <div className="gb-footer-columns">
+              <div className="gb-footer-col">
+                <div className="gb-footer-col-title">Sitemap</div>
+                <NavLink to="/" className="gb-footer-link">Home</NavLink>
+                <NavLink to="/edit" className="gb-footer-link">Edit</NavLink>
+                <NavLink to="/posts" className="gb-footer-link">Posts</NavLink>
+              </div>
+
+              <div className="gb-footer-col">
+                <div className="gb-footer-col-title">Info</div>
+                <a className="gb-footer-link" href="#" onClick={(e) => e.preventDefault()}>FAQs</a>
+                <a className="gb-footer-link" href="#" onClick={(e) => e.preventDefault()}>Privacy Policy</a>
+                <a className="gb-footer-link" href="#" onClick={(e) => e.preventDefault()}>Terms &amp; Conditions</a>
+              </div>
+
+              <div className="gb-footer-col">
+                <div className="gb-footer-col-title">Contact</div>
+                <a className="gb-footer-link" href="tel:+973" aria-label="Phone">+973</a>
+                <a className="gb-footer-link" href="mailto:hello@gobahrain.app">hello@gobahrain.app</a>
+                <div className="gb-footer-muted">Kingdom of Bahrain</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="gb-footer-bottom">
+            <div className="gb-footer-legal-pill">© {new Date().getFullYear()} Go Bahrain. All rights reserved.</div>
+            <div className="gb-footer-social" aria-label="Social links">
+              <a className="gb-footer-social-btn" href="#" onClick={(e) => e.preventDefault()} aria-label="LinkedIn">in</a>
+              <a className="gb-footer-social-btn" href="#" onClick={(e) => e.preventDefault()} aria-label="WhatsApp">wa</a>
+              <a className="gb-footer-social-btn" href="#" onClick={(e) => e.preventDefault()} aria-label="Instagram">ig</a>
+            </div>
+          </div>
+        </div>
       </footer>
     </div>
   )
