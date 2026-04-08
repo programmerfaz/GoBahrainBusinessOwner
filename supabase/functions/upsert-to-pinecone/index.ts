@@ -24,7 +24,10 @@ function buildSemanticText(p: Record<string, unknown>): string {
   if (p.openclosed_state) parts.push(`Status: ${p.openclosed_state}.`)
   if (p.place_name) parts.push(`Place: ${p.place_name}.`)
   if (p.suitable_for) parts.push(`Suitable for: ${p.suitable_for}.`)
-  return parts.join('\n')
+  const joined = parts.join('\n').trim()
+  if (joined) return joined
+  const id = String(p.client_a_uuid ?? '')
+  return id ? `Business listing ${id} in Bahrain.` : 'Business listing in Bahrain.'
 }
 
 serve(async (req) => {
@@ -68,6 +71,7 @@ serve(async (req) => {
       headers: {
         'Content-Type': 'application/json',
         'Api-Key': PINECONE_API_KEY,
+        'X-Pinecone-Api-Version': '2025-10',
       },
       body: JSON.stringify({
         vectors: [{ id: payload.client_a_uuid, values: embedding, metadata }],

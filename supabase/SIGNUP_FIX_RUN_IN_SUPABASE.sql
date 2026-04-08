@@ -1,15 +1,26 @@
--- Fix 500 on signup: stop using trigger on auth.users; create account+client via RPC after signup.
--- 1) Drop the trigger so Auth signup returns 200.
+-- =============================================================================
+-- FIX: column "event_type" of relation "client" does not exist (on sign up)
+-- =============================================================================
+-- Your public.client table has no event_type / indoor_outdoor columns.
+-- The hosted function create_my_account_and_client was still inserting them.
+--
+-- HOW TO APPLY:
+-- 1. Open Supabase Dashboard → SQL Editor → New query
+-- 2. Paste this ENTIRE file → Run
+-- 3. Try Sign up again
+--
+-- Optional: stops the auth trigger from also creating rows (app uses RPC only).
+-- If you rely on the trigger for something else, comment out the DROP TRIGGER block.
+-- =============================================================================
+
+-- Avoid double-creation / old trigger paths (app calls create_my_account_and_client after Auth)
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 
--- 2) RPC: create account (account_type = 'client') and client for the currently authenticated user.
---    p_client_type: 'place' | 'restaurant' | 'event_organizer' (from dropdown). Creates subtype row when needed.
---    If you get "type public.client_type does not exist", change public.client_type to your enum type (e.g. client_type).
 CREATE OR REPLACE FUNCTION public.create_my_account_and_client(
   p_email text,
   p_name text DEFAULT '',
   p_phone text DEFAULT '',
-  p_client_type text DEFAULT 'client'
+  p_client_type text DEFAULT 'restaurant'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -29,6 +40,7 @@ BEGIN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
 
+  -- Must match enum client_type: restaurant | place | event_organizer
   v_type_text := CASE
     WHEN LOWER(TRIM(p_client_type)) IN ('place', 'restaurant', 'event_organizer') THEN LOWER(TRIM(p_client_type))
     ELSE 'restaurant'
@@ -46,7 +58,7 @@ BEGIN
   )
   RETURNING account_uuid INTO v_account_uuid;
 
-  -- Only columns guaranteed on public.client (no event_type / indoor_outdoor on client — those live on public.events)
+  -- Only columns on your minimal client table (no event_type / indoor_outdoor)
   INSERT INTO public.client (account_a_uuid, business_name, client_type)
   VALUES (
     v_account_uuid,
@@ -62,7 +74,7 @@ BEGIN
     INSERT INTO public.place (client_uuid, name, description, opening_time, closing_time, entry_cost, suitable_for, category, indoor_outdoor)
     VALUES (v_client_uuid, COALESCE(NULLIF(TRIM(p_name), ''), 'My place'), NULL, NULL, NULL, NULL, NULL, NULL, NULL);
   END IF;
-  -- event_organizer: only the client row; use public.events for event_type / indoor_outdoor per event
+  -- event_organizer: client row only; per-event fields live on public.events
 
   SELECT to_jsonb(a) INTO v_account FROM public.account a WHERE a.account_uuid = v_account_uuid;
   RETURN v_account;

@@ -14,9 +14,10 @@ app.use(express.json())
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://zonhaprelkjyjugpqfdn.supabase.co'
 const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvbmhhcHJlbGtqeWp1Z3BxZmRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3OTE1MDUsImV4cCI6MjA4NjM2NzUwNX0.vPJEdSZzZzNo-69QV-e7pKDyAC9rFYLdpJPiwgiQR3o'
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-const openaiKey = process.env.OPENAI_API_KEY
-const pineconeKey = process.env.PINECONE_API_KEY
-const pineconeHost = process.env.PINECONE_HOST
+// Server reads non-VITE names; many .env files only set VITE_* for the browser — use both.
+const openaiKey = process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
+const pineconeKey = process.env.PINECONE_API_KEY || process.env.VITE_PINECONE_API_KEY
+const pineconeHost = process.env.PINECONE_HOST || process.env.VITE_PINECONE_HOST
 
 const supabase = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey)
@@ -102,7 +103,10 @@ function buildSemanticText(p) {
   if (p.end_date) parts.push(`Ends: ${p.end_date}.`)
   if (p.start_time) parts.push(`Start time: ${p.start_time}.`)
   if (p.end_time) parts.push(`End time: ${p.end_time}.`)
-  return parts.join('\n')
+  const joined = parts.join('\n').trim()
+  if (joined) return joined
+  const id = p.client_a_uuid || p.event_uuid || ''
+  return id ? `Business listing ${id} in Bahrain.` : 'Business listing in Bahrain.'
 }
 
 /** Keys to exclude from Pinecone metadata (internal IDs + non-search assets) */
@@ -261,16 +265,26 @@ async function pineconeFetchExistingIds(pcHost, pcKey, ids) {
 }
 
 async function pineconeUpsertPayloads(payloads) {
-  let pineconeOk = false
-  let pineconeError = null
-
   if (!openaiKey || !pineconeKey || !pineconeHost) {
-    pineconeError = 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env'
-    return { pineconeOk, pineconeError }
+    return {
+      pineconeOk: false,
+      pineconeError: 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env',
+    }
   }
 
+  if (!Array.isArray(payloads) || payloads.length === 0) {
+    return { pineconeOk: false, pineconeError: 'No profile payloads to index' }
+  }
+
+  let pineconeError = null
+
   for (const mergedPayload of payloads) {
-    const vectorId = mergedPayload.event_uuid || mergedPayload.client_a_uuid
+    const vectorId = String(mergedPayload.event_uuid || mergedPayload.client_a_uuid || '').trim()
+    if (!vectorId) {
+      pineconeError = 'Missing vector id (client_a_uuid or event_uuid)'
+      return { pineconeOk: false, pineconeError }
+    }
+
     const text = buildSemanticText(mergedPayload)
     const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
@@ -279,13 +293,13 @@ async function pineconeUpsertPayloads(payloads) {
     })
     if (!openaiRes.ok) {
       pineconeError = `OpenAI failed: ${await openaiRes.text()}`
-      break
+      return { pineconeOk: false, pineconeError }
     }
     const openaiData = await openaiRes.json()
     const embedding = openaiData?.data?.[0]?.embedding
     if (!Array.isArray(embedding)) {
       pineconeError = 'Invalid embedding from OpenAI'
-      break
+      return { pineconeOk: false, pineconeError }
     }
 
     const metadata = buildMetadataFromPayload(mergedPayload)
@@ -300,13 +314,14 @@ async function pineconeUpsertPayloads(payloads) {
       body: JSON.stringify({ vectors: [{ id: vectorId, values: embedding, metadata }] }),
     })
     if (!pcRes.ok) {
-      pineconeError = `Pinecone failed: ${await pcRes.text()}`
-      break
+      const pcText = await pcRes.text()
+      const dim = embedding.length
+      pineconeError = `Pinecone failed: ${pcText} (embedding length=${dim}; index must be ${dim} dims — this app uses OpenAI text-embedding-3-small → usually 1536)`
+      return { pineconeOk: false, pineconeError }
     }
-    pineconeOk = true
   }
 
-  return { pineconeOk, pineconeError }
+  return { pineconeOk: true, pineconeError: null }
 }
 
 async function refreshPineconeFromClient(clientUuid, tags = null) {
@@ -486,7 +501,11 @@ app.post('/api/submit-profile', async (req, res) => {
       pineconeError = 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env'
       console.error('[Pinecone]', pineconeError)
     } else {
-      const vectorId = typeChoice === 'event_organizer' && pEvent?.event_uuid ? pEvent.event_uuid : mergedPayload.client_a_uuid
+      const rawId = typeChoice === 'event_organizer' && pEvent?.event_uuid ? pEvent.event_uuid : mergedPayload.client_a_uuid
+      const vectorId = String(rawId || '').trim()
+      if (!vectorId) {
+        pineconeError = 'Missing client id for Pinecone vector'
+      } else {
       const text = buildSemanticText(mergedPayload)
       const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
@@ -518,13 +537,15 @@ app.post('/api/submit-profile', async (req, res) => {
           })
           const pcBody = await pcRes.text()
           if (!pcRes.ok) {
-            pineconeError = `Pinecone failed: ${pcBody}`
+            const dim = embedding.length
+            pineconeError = `Pinecone failed: ${pcBody} (embedding length=${dim}; Pinecone index dimension must match — text-embedding-3-small is usually 1536)`
             console.error('[Pinecone]', pineconeError)
           } else {
             pineconeOk = true
             console.log('[Pinecone] Upserted', mergedPayload.business_name, vectorId)
           }
         }
+      }
       }
     }
 
@@ -813,5 +834,105 @@ app.get('/api/client/:id/pinecone-tags', async (req, res) => {
   }
 })
 
-const port = process.env.PORT || 3002
-app.listen(port, () => console.log(`Server on http://localhost:${port}`))
+/** Quick check: env loaded + optional live OpenAI + Pinecone upsert (set PINECONE_DEBUG=1 for probe). */
+app.get('/api/health', (req, res) => {
+  let hostLabel = null
+  try {
+    if (pineconeHost) hostLabel = new URL(pineconeHost).hostname
+  } catch {
+    hostLabel = 'invalid URL'
+  }
+  res.json({
+    ok: true,
+    searchIndex: {
+      openaiKeyLoaded: Boolean(openaiKey),
+      pineconeKeyLoaded: Boolean(pineconeKey),
+      pineconeHostLoaded: Boolean(pineconeHost),
+      pineconeHostname: hostLabel,
+    },
+    note:
+      'Profile saves call OpenAI embeddings then Pinecone upsert. Index dimension must match the embedding (text-embedding-3-small → 1536). GET /api/health/pinecone-probe?debug=1 requires PINECONE_DEBUG=1 in .env.',
+  })
+})
+
+app.get('/api/health/pinecone-probe', async (req, res) => {
+  if (process.env.PINECONE_DEBUG !== '1' || req.query.debug !== '1') {
+    return res.status(403).json({
+      error: 'Add PINECONE_DEBUG=1 to .env, restart server, then open /api/health/pinecone-probe?debug=1',
+    })
+  }
+  if (!openaiKey || !pineconeKey || !pineconeHost) {
+    return res.status(400).json({
+      step: 'config',
+      ok: false,
+      detail: 'Missing OPENAI_API_KEY and/or PINECONE_API_KEY and/or PINECONE_HOST',
+    })
+  }
+  const probeId = 'gobahrain-probe-delete-me'
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: 'health check' }),
+    })
+    const openaiText = await openaiRes.text()
+    if (!openaiRes.ok) {
+      return res.status(200).json({ ok: false, step: 'openai', status: openaiRes.status, detail: openaiText.slice(0, 800) })
+    }
+    const openaiData = JSON.parse(openaiText)
+    const embedding = openaiData?.data?.[0]?.embedding
+    if (!Array.isArray(embedding)) {
+      return res.status(200).json({ ok: false, step: 'openai', detail: 'No embedding array in response' })
+    }
+    const pcUrl = `${pineconeHost.replace(/\/$/, '')}/vectors/upsert`
+    const pcRes = await fetch(pcUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Key': pineconeKey,
+        'X-Pinecone-Api-Version': '2025-10',
+      },
+      body: JSON.stringify({
+        vectors: [{ id: probeId, values: embedding, metadata: { probe: true } }],
+      }),
+    })
+    const pcText = await pcRes.text()
+    if (!pcRes.ok) {
+      return res.status(200).json({
+        ok: false,
+        step: 'pinecone',
+        embeddingDimensions: embedding.length,
+        pineconeStatus: pcRes.status,
+        detail: pcText.slice(0, 1200),
+        hint:
+          embedding.length !== 1536
+            ? 'Unexpected embedding size; check OpenAI model.'
+            : 'If error mentions dimension mismatch, create a new Pinecone index with dimension 1536 or fix the existing index.',
+      })
+    }
+    await fetch(`${pineconeHost.replace(/\/$/, '')}/vectors/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Key': pineconeKey,
+        'X-Pinecone-Api-Version': '2025-10',
+      },
+      body: JSON.stringify({ ids: [probeId] }),
+    }).catch(() => {})
+    return res.json({
+      ok: true,
+      embeddingDimensions: embedding.length,
+      message: 'OpenAI + Pinecone upsert succeeded; probe vector removed.',
+    })
+  } catch (e) {
+    return res.status(500).json({ ok: false, step: 'exception', detail: String(e?.message || e) })
+  }
+})
+
+const port = Number(process.env.BACKEND_PORT || process.env.PORT || 4000)
+app.listen(port, () => {
+  console.log(`Server on http://localhost:${port}`)
+  console.log(
+    `[Search index] OpenAI: ${openaiKey ? 'key loaded' : 'MISSING'} | Pinecone: ${pineconeKey && pineconeHost ? 'key+host loaded' : 'MISSING'}`
+  )
+})

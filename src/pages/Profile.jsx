@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import './ProfileDashboard.css'
 import { QRCodeSVG } from 'qrcode.react'
@@ -36,6 +36,119 @@ const emptyBranch = () => ({
   lat: '',
   long: '',
 })
+
+/** Orbit band items for the profile “What your listing says” radial (order matches previous inline logic). */
+function buildAboutOrbitItems(c) {
+  if (!c || typeof c !== 'object') return []
+  const items = []
+  if (String(c.price_range || '').trim()) {
+    const pr = String(c.price_range).replace(/\s*BHD\s*$/i, '').trim()
+    items.push({
+      key: 'price_range',
+      label: 'Price Range',
+      subline: 'What visitors can expect',
+      value: `${pr} BHD`,
+      icon: 'price',
+    })
+  }
+  if (String(c.timings || '').trim()) {
+    items.push({
+      key: 'timings',
+      label: 'Opening Hours',
+      subline: "When you're open",
+      value: String(c.timings).trim(),
+      icon: 'clock',
+    })
+  }
+  if (String(c.cuisine || '').trim()) {
+    items.push({
+      key: 'cuisine',
+      label: 'Cuisine',
+      subline: "What's on the menu",
+      value: String(c.cuisine).trim(),
+      icon: 'cuisine',
+    })
+  }
+  if (String(c.meal_type || '').trim()) {
+    items.push({
+      key: 'meal_type',
+      label: 'Meal Type',
+      subline: 'Breakfast, lunch & more',
+      value: String(c.meal_type).trim(),
+      icon: 'meal',
+    })
+  }
+  if (String(c.food_type || '').trim()) {
+    items.push({
+      key: 'food_type',
+      label: 'Food Type',
+      subline: 'Diet and style',
+      value: String(c.food_type).trim(),
+      icon: 'food',
+    })
+  }
+  if (String(c.speciality || '').trim()) {
+    items.push({
+      key: 'speciality',
+      label: 'Speciality',
+      subline: "What you're known for",
+      value: String(c.speciality).trim(),
+      icon: 'star',
+    })
+  }
+  if (String(c.category || '').trim() && !c.cuisine) {
+    items.push({
+      key: 'category',
+      label: 'Category',
+      subline: 'Type of place',
+      value: String(c.category).trim(),
+      icon: 'grid',
+    })
+  }
+  return items
+}
+
+/**
+ * Orbit radius + box size from satellite count and viewport so cards do not overlap each other or the hub.
+ * Chord between adjacent centers = 2*r*sin(π/n); we require that to exceed card width × clearance.
+ */
+function computeAboutOrbitLayout(n, innerWidth) {
+  const HUB_R = 88
+  const GAP = 28
+  const SIDE = 56
+  const maxBox = Math.max(280, innerWidth - SIDE)
+  const clearance = 1.15
+
+  if (n < 1) return { orbitR: 160, boxPx: 520, satW: 200 }
+
+  let satW = Math.min(222, Math.max(150, Math.round(innerWidth * 0.34)))
+
+  const requiredR = (sw) => {
+    if (n === 1) return Math.ceil(HUB_R + sw / 2 + 20)
+    const fromChord = (clearance * sw) / (2 * Math.sin(Math.PI / n))
+    const fromHub = HUB_R + sw / 2 + 20
+    return Math.ceil(Math.max(fromChord, fromHub))
+  }
+
+  let orbitR = requiredR(satW)
+  let boxPx = Math.ceil(2 * (orbitR + satW / 2 + GAP))
+
+  let guard = 0
+  while (guard < 56) {
+    orbitR = requiredR(satW)
+    boxPx = Math.ceil(2 * (orbitR + satW / 2 + GAP))
+    const halfExtent = orbitR + satW / 2 + GAP
+    if (boxPx <= maxBox && halfExtent <= maxBox / 2 + 1) break
+    if (satW <= 132) break
+    satW -= 4
+    guard += 1
+  }
+
+  orbitR = requiredR(satW)
+  boxPx = Math.min(maxBox, Math.ceil(2 * (orbitR + satW / 2 + GAP)))
+
+  return { orbitR, boxPx, satW }
+}
 
 const PRICE_PRESETS = [
   { label: 'Affordable', value: '1-3 BHD' },
@@ -326,6 +439,25 @@ export default function Profile({ mode }) {
   const headerImageInputRef = useRef(null)
   const clientImageInputRef = useRef(null)
   const eventImageInputRef = useRef(null)
+
+  const [orbitLayoutWidth, setOrbitLayoutWidth] = useState(() =>
+    typeof globalThis.window !== 'undefined' ? globalThis.window.innerWidth : 1024
+  )
+  useEffect(() => {
+    const onResize = () => setOrbitLayoutWidth(globalThis.window.innerWidth)
+    onResize()
+    globalThis.window.addEventListener('resize', onResize)
+    return () => globalThis.window.removeEventListener('resize', onResize)
+  }, [])
+
+  const aboutOrbitLayoutProbe = useMemo(
+    () => buildAboutOrbitItems(displayClient || clients[0] || {}),
+    [displayClient, clients]
+  )
+  const aboutOrbitLayoutMetrics = useMemo(
+    () => computeAboutOrbitLayout(aboutOrbitLayoutProbe.length, orbitLayoutWidth),
+    [aboutOrbitLayoutProbe.length, orbitLayoutWidth]
+  )
 
   useEffect(() => {
     return () => {
@@ -964,6 +1096,8 @@ export default function Profile({ mode }) {
           ? (c.description.length > 220 ? c.description.slice(0, 220).trim() + '…' : c.description)
           : null
 
+        const aboutOrbitItems = buildAboutOrbitItems(c)
+
         return (
           <>
             <div className="hd-page">
@@ -995,70 +1129,63 @@ export default function Profile({ mode }) {
               </header>
 
               {/* ── ABOUT ── */}
-              {descSnippet && (
+              {(descSnippet || aboutOrbitItems.length > 0) && (
                 <div className="hd-band">
-                  <div className="hd-about-grid">
+                  <div
+                    className={`hd-about-grid${aboutOrbitItems.length === 0 ? ' hd-about-grid--solo' : ' hd-about-grid--with-orbit'}`}
+                  >
                     <div className="hd-about-left">
-                      <p className="hd-band-label">About</p>
-                      <h2 className="hd-band-title">What your listing says</h2>
-                      <p className="hd-band-sub">{descSnippet}</p>
-                      {(c.price_range || c.timings || c.cuisine) && (
-                        <div className="hd-about-stat-row">
-                          {c.price_range && (
-                            <div className="hd-about-stat">
-                              <span className="hd-about-stat-lbl">Price Range</span>
-                              <span className="hd-about-stat-num">{c.price_range.replace(/\s*BHD\s*$/i,'').trim()} <span className="hd-detail-currency">BHD</span></span>
-                            </div>
-                          )}
-                          {c.timings && (
-                            <div className="hd-about-stat">
-                              <span className="hd-about-stat-lbl">Opening Hours</span>
-                              <span className="hd-about-stat-num">{c.timings}</span>
-                            </div>
-                          )}
-                        </div>
+                      {descSnippet && (
+                        <>
+                          <p className="hd-band-label">Summary</p>
+                          <p className="hd-band-sub">{descSnippet}</p>
+                        </>
                       )}
                     </div>
                     <div className="hd-about-right">
-                      {(c.cuisine || c.meal_type || c.food_type) && (
-                        <>
-                          {c.cuisine && (
-                            <div className="hd-detail-row">
-                              <div className="hd-detail-icon-wrap">
-                                <HdDetailIcon type="cuisine" />
-                              </div>
-                              <div className="hd-detail-label-wrap">
-                                <span className="hd-detail-label">Cuisine</span>
-                                <span className="hd-detail-subline">What's on the menu</span>
-                              </div>
-                              <span className="hd-detail-value">{c.cuisine}</span>
-                            </div>
-                          )}
-                          {c.meal_type && (
-                            <div className="hd-detail-row">
-                              <div className="hd-detail-icon-wrap">
-                                <HdDetailIcon type="meal" />
-                              </div>
-                              <div className="hd-detail-label-wrap">
-                                <span className="hd-detail-label">Meal Type</span>
-                                <span className="hd-detail-subline">Breakfast, lunch & more</span>
-                              </div>
-                              <span className="hd-detail-value">{c.meal_type}</span>
-                            </div>
-                          )}
-                          {c.food_type && (
-                            <div className="hd-detail-row">
-                              <div className="hd-detail-icon-wrap">
-                                <HdDetailIcon type="food" />
-                              </div>
-                              <div className="hd-detail-label-wrap">
-                                <span className="hd-detail-label">Food Type</span>
-                                <span className="hd-detail-subline">Diet and style</span>
-                              </div>
-                              <span className="hd-detail-value">{c.food_type}</span>
-                            </div>
-                          )}
-                        </>
+                      {aboutOrbitItems.length > 0 && (
+                        <section
+                          className="hd-about-orbit-radial"
+                          aria-labelledby="about-orbit-title"
+                          style={{
+                            '--orbit-r-dynamic': `${aboutOrbitLayoutMetrics.orbitR}px`,
+                            '--orbit-box-dynamic': `${aboutOrbitLayoutMetrics.boxPx}px`,
+                            '--sat-w-dynamic': `${aboutOrbitLayoutMetrics.satW}px`,
+                          }}
+                        >
+                          <div className="hd-about-orbit-hub">
+                            <h2 id="about-orbit-title" className="hd-about-orbit-hub-title">
+                              What your listing says
+                            </h2>
+                          </div>
+                          {aboutOrbitItems.map((item, i) => {
+                            const step = 360 / aboutOrbitItems.length
+                            const angleDeg = step * i - 90
+                            return (
+                              <article
+                                key={item.key}
+                                className="hd-about-orbit-satellite"
+                                style={{
+                                  '--orbit-angle': `${angleDeg}deg`,
+                                  '--orbit-enter-delay': `${160 + i * 58}ms`,
+                                }}
+                              >
+                                <div className="hd-about-orbit-sat-inner">
+                                  <div className="hd-about-orbit-sat-head">
+                                    <div className="hd-detail-icon-wrap hd-about-orbit-sat-icon" aria-hidden>
+                                      <HdDetailIcon type={item.icon} />
+                                    </div>
+                                    <div className="hd-about-orbit-sat-labels">
+                                      <span className="hd-detail-label">{item.label}</span>
+                                      <span className="hd-detail-subline">{item.subline}</span>
+                                    </div>
+                                  </div>
+                                  <p className="hd-about-orbit-sat-value">{item.value}</p>
+                                </div>
+                              </article>
+                            )
+                          })}
+                        </section>
                       )}
                     </div>
                   </div>
