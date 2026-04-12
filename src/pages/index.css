@@ -4489,6 +4489,114 @@ a.pf-back:hover { text-decoration: underline; }
   margin-bottom: 1.5rem;
 }
 
+.post-compose-price-heading {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.35rem;
+}
+
+.post-compose-price-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
+.post-compose-price-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: 220px;
+  margin: 0 auto;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.post-compose-price-step-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text);
+  background: var(--color-primary-light, rgba(212, 175, 55, 0.2));
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+
+.post-compose-price-step-btn:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.post-compose-price-step-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.post-compose-price-step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.post-compose-price-step-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.15rem;
+}
+
+.post-compose-price-step-input {
+  width: 100%;
+  max-width: 5.25rem;
+  min-width: 3rem;
+  padding: 0.25rem 0.15rem;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: transparent;
+  color: var(--color-text);
+  transition: box-shadow 0.15s;
+}
+
+.post-compose-price-step-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.post-compose-price-step-input::-webkit-outer-spin-button,
+.post-compose-price-step-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.post-compose-price-step-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.post-compose-price-step-suffix {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
 .post-compose-field select {
   width: 100%;
   padding: 0.85rem 1rem;

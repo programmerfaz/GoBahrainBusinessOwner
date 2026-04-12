@@ -112,7 +112,6 @@ function buildSemanticText(p) {
 /** Keys to exclude from Pinecone metadata (internal IDs + non-search assets) */
 const PINECONE_METADATA_EXCLUDE = new Set([
   'account_a_uuid',
-  'client_a_uuid',
   'place_uuid',
   'event_uuid',
   'client_image',
@@ -234,34 +233,35 @@ function buildMergedPayloadFromProfile(profile, tags) {
   return base
 }
 
+const PINECONE_DELETE_BATCH = 1000
+
+/** Delete by vector ids (chunked). Pinecone accepts at most 1000 ids per request; missing ids are a no-op. */
 async function pineconeDelete(pcHost, pcKey, ids) {
-  const url = `${pcHost.replace(/\/$/, '')}/vectors/delete`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Api-Key': pcKey, 'X-Pinecone-Api-Version': '2025-10' },
-    body: JSON.stringify({ ids }),
-  })
-  return res.ok
+  const base = pcHost.replace(/\/$/, '')
+  const unique = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))]
+  if (unique.length === 0) return true
+  for (let i = 0; i < unique.length; i += PINECONE_DELETE_BATCH) {
+    const chunk = unique.slice(i, i + PINECONE_DELETE_BATCH)
+    const res = await fetch(`${base}/vectors/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Api-Key': pcKey, 'X-Pinecone-Api-Version': '2025-10' },
+      body: JSON.stringify({ ids: chunk }),
+    })
+    if (!res.ok) return false
+  }
+  return true
 }
 
-async function pineconeFetchExistingIds(pcHost, pcKey, ids) {
-  if (!Array.isArray(ids) || ids.length === 0) return []
-  const params = new URLSearchParams()
-  ids.forEach((id) => {
-    if (id) params.append('ids', id)
+/** Remove all vectors for this client via metadata (mutually exclusive from ids in one call — separate POST). */
+async function pineconeDeleteByClientMetadata(pcHost, pcKey, clientUuid) {
+  const id = String(clientUuid || '').trim()
+  if (!id) return true
+  const res = await fetch(`${pcHost.replace(/\/$/, '')}/vectors/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Api-Key': pcKey, 'X-Pinecone-Api-Version': '2025-10' },
+    body: JSON.stringify({ filter: { client_a_uuid: { $eq: id } } }),
   })
-  const url = `${pcHost.replace(/\/$/, '')}/vectors/fetch?${params.toString()}`
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Api-Key': pcKey,
-      'X-Pinecone-Api-Version': '2025-10',
-    },
-  })
-  if (!res.ok) return []
-  const data = await res.json().catch(() => ({}))
-  const vectors = data?.vectors && typeof data.vectors === 'object' ? data.vectors : {}
-  return Object.keys(vectors)
+  return res.ok
 }
 
 async function pineconeUpsertPayloads(payloads) {
@@ -339,15 +339,21 @@ async function refreshPineconeFromClient(clientUuid, tags = null) {
   if (openaiKey && pineconeKey && pineconeHost) {
     const idsToDelete = [clientUuid]
     if (profile.client_type === 'event_organizer' && Array.isArray(profile.events)) {
-      profile.events.forEach((ev) => { if (ev?.event_uuid) idsToDelete.push(ev.event_uuid) })
+      profile.events.forEach((ev) => {
+        if (ev?.event_uuid) idsToDelete.push(ev.event_uuid)
+      })
     }
     try {
-      const existingIds = await pineconeFetchExistingIds(pineconeHost, pineconeKey, idsToDelete)
-      if (existingIds.length > 0) {
-        await pineconeDelete(pineconeHost, pineconeKey, existingIds)
-      }
+      // Wipe every vector tagged with this client (covers multi-event rows and rewrites without listing orphans).
+      await pineconeDeleteByClientMetadata(pineconeHost, pineconeKey, clientUuid)
     } catch {
-      // Best-effort cleanup: if existence check fails, continue to upsert.
+      // Older rows may lack client_a_uuid in metadata; id delete below still clears known ids.
+    }
+    try {
+      // Always delete by id (no pre-fetch): fetch-gated delete skipped removals when fetch failed or URL limits hit.
+      await pineconeDelete(pineconeHost, pineconeKey, idsToDelete)
+    } catch {
+      // Continue to upsert so DB updates are not blocked by Pinecone.
     }
   }
 

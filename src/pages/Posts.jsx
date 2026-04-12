@@ -8,6 +8,50 @@ import { uploadEventImage } from '../lib/profileImages'
 import { createEventForClient, updateEventForClient } from '../lib/events'
 import HomeContentNav from '../components/HomeContentNav'
 
+const POST_PRICE_BHD_MIN = 0
+const POST_PRICE_BHD_MAX = 500
+/** BHD allows fils (3 decimal places). */
+const POST_PRICE_BHD_DECIMALS = 3
+
+function clampPostPriceBhd(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return POST_PRICE_BHD_MIN
+  const rounded =
+    Math.round(x * 10 ** POST_PRICE_BHD_DECIMALS) / 10 ** POST_PRICE_BHD_DECIMALS
+  return Math.min(POST_PRICE_BHD_MAX, Math.max(POST_PRICE_BHD_MIN, rounded))
+}
+
+function formatPriceBhdDisplay(n) {
+  return Number(clampPostPriceBhd(n).toFixed(POST_PRICE_BHD_DECIMALS))
+}
+
+/** String sent to the API, e.g. "12.5 BHD" (no trailing zeros). */
+function formatPriceBhdForApi(n) {
+  const x = clampPostPriceBhd(n)
+  if (x <= POST_PRICE_BHD_MIN) return null
+  return `${formatPriceBhdDisplay(x)} BHD`
+}
+
+/** Parse stored text; range strings use the lower end. */
+function parsePriceBhdFromStored(s) {
+  if (!s || typeof s !== 'string') return POST_PRICE_BHD_MIN
+  const norm = s.replace(/–/g, '-')
+  const rangeMatch = norm.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/)
+  if (rangeMatch) {
+    const a = clampPostPriceBhd(rangeMatch[1])
+    const b = clampPostPriceBhd(rangeMatch[2])
+    return Math.min(a, b)
+  }
+  const m = norm.match(/(\d+(?:\.\d+)?)/)
+  if (!m) return POST_PRICE_BHD_MIN
+  return clampPostPriceBhd(m[1])
+}
+
+const emptyPostComposeForm = () => ({
+  description: '',
+  priceBhd: POST_PRICE_BHD_MIN,
+})
+
 const emptyEventForm = () => ({
   event_name: '',
   status: 'coming_soon',
@@ -40,8 +84,8 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
   const [saving, setSaving] = useState(false)
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [updatingEvent, setUpdatingEvent] = useState(false)
-  const [createForm, setCreateForm] = useState({ description: '', priceRange: '' })
-  const [editForm, setEditForm] = useState({ description: '', priceRange: '' })
+  const [createForm, setCreateForm] = useState(emptyPostComposeForm)
+  const [editForm, setEditForm] = useState(emptyPostComposeForm)
   const [eventForm, setEventForm] = useState(emptyEventForm())
   const [imageFile, setImageFile] = useState(null)
   const [editImageFile, setEditImageFile] = useState(null)
@@ -149,12 +193,12 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
       await createPost({
         clientUuid: clientId,
         description: createForm.description.trim(),
-        priceRange: createForm.priceRange?.trim() || null,
+        priceRange: formatPriceBhdForApi(createForm.priceBhd),
         postImage: postImageUrl,
       })
       const updated = await getPostsByClient(clientId)
       setPosts(updated)
-      setCreateForm({ description: '', priceRange: '' })
+      setCreateForm(emptyPostComposeForm())
       setImageFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       setShowCreate(false)
@@ -182,13 +226,13 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
       await updatePost({
         postUuid: editingPost.post_uuid,
         description: editForm.description.trim(),
-        priceRange: editForm.priceRange?.trim() || null,
+        priceRange: formatPriceBhdForApi(editForm.priceBhd),
         postImage: postImageUrl,
       })
       const updated = await getPostsByClient(clientId)
       setPosts(updated)
       setEditingPost(null)
-      setEditForm({ description: '', priceRange: '' })
+      setEditForm(emptyPostComposeForm())
       setEditImageFile(null)
       if (editFileInputRef.current) editFileInputRef.current.value = ''
     } catch (err) {
@@ -202,7 +246,7 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
     setEditingPost(p)
     setEditForm({
       description: p.description || p.content || '',
-      priceRange: p.price_range || '',
+      priceBhd: parsePriceBhdFromStored(p.price_range || ''),
     })
     setEditImageFile(null)
     setError('')
@@ -313,7 +357,7 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
   function openCreate() {
     setError('')
     if (activeSection === 'posts') {
-      setCreateForm({ description: '', priceRange: '' })
+      setCreateForm(emptyPostComposeForm())
       setImageFile(null)
       setShowCreate(true)
     } else if (isEventOrganizer && activeSection === 'events') {
@@ -557,18 +601,78 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                 </div>
 
                 <div className="post-compose-field post-compose-price-wrap">
-                  <label htmlFor="post-compose-price">Price (optional)</label>
-                  <input
-                    id="post-compose-price"
-                    type="text"
-                    placeholder="e.g. 5–20 BHD"
-                    value={editingPost ? editForm.priceRange : createForm.priceRange}
-                    onChange={(e) =>
-                      editingPost
-                        ? setEditForm((prev) => ({ ...prev, priceRange: e.target.value }))
-                        : setCreateForm((p) => ({ ...p, priceRange: e.target.value }))
-                    }
-                  />
+                  <span className="post-compose-price-heading" id="post-compose-price-label">
+                    Price (optional)
+                  </span>
+                  <p className="post-compose-price-hint">
+                    0 = no price. ±1 BHD per tap; type decimals in the field. Max {POST_PRICE_BHD_MAX}.
+                  </p>
+                  <div
+                    className="post-compose-price-stepper"
+                    role="group"
+                    aria-labelledby="post-compose-price-label"
+                  >
+                    <button
+                      type="button"
+                      className="post-compose-price-step-btn"
+                      aria-label="Decrease price by 1 BHD"
+                      disabled={(editingPost ? editForm.priceBhd : createForm.priceBhd) <= POST_PRICE_BHD_MIN}
+                      onClick={() => {
+                        const cur = editingPost ? editForm.priceBhd : createForm.priceBhd
+                        const next = clampPostPriceBhd(cur - 1)
+                        if (editingPost) setEditForm((prev) => ({ ...prev, priceBhd: next }))
+                        else setCreateForm((p) => ({ ...p, priceBhd: next }))
+                      }}
+                    >
+                      −
+                    </button>
+                    <div className="post-compose-price-step-center">
+                      <input
+                        id="post-compose-price-input"
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        min={POST_PRICE_BHD_MIN}
+                        max={POST_PRICE_BHD_MAX}
+                        className="post-compose-price-step-input"
+                        aria-label="Price amount in BHD (type or use plus and minus)"
+                        aria-live="polite"
+                        value={String(
+                          formatPriceBhdDisplay(editingPost ? editForm.priceBhd : createForm.priceBhd)
+                        )}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const patch = (priceBhd) =>
+                            editingPost
+                              ? setEditForm((prev) => ({ ...prev, priceBhd }))
+                              : setCreateForm((p) => ({ ...p, priceBhd }))
+                          if (raw === '' || raw === '-') {
+                            patch(POST_PRICE_BHD_MIN)
+                            return
+                          }
+                          const n = Number(raw)
+                          if (Number.isFinite(n)) patch(clampPostPriceBhd(n))
+                        }}
+                      />
+                      <span className="post-compose-price-step-suffix">BHD</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="post-compose-price-step-btn"
+                      aria-label="Increase price by 1 BHD"
+                      disabled={
+                        (editingPost ? editForm.priceBhd : createForm.priceBhd) >= POST_PRICE_BHD_MAX
+                      }
+                      onClick={() => {
+                        const cur = editingPost ? editForm.priceBhd : createForm.priceBhd
+                        const next = clampPostPriceBhd(cur + 1)
+                        if (editingPost) setEditForm((prev) => ({ ...prev, priceBhd: next }))
+                        else setCreateForm((p) => ({ ...p, priceBhd: next }))
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
 
                 <div className="post-compose-actions">
