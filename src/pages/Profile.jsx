@@ -450,6 +450,53 @@ export default function Profile({ mode }) {
     return () => globalThis.window.removeEventListener('resize', onResize)
   }, [])
 
+  // ── Cinematic scroll animations ──
+  useEffect(() => {
+    if (!isDashboard) return
+
+    // 1. IntersectionObserver: reveal sections as they enter the viewport
+    const revealNodes = Array.from(document.querySelectorAll('.hd-reveal, .hd-band, .hd-actions-band'))
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible')
+            io.unobserve(entry.target)
+          }
+        }
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -8% 0px' }
+    )
+    revealNodes.forEach((n) => io.observe(n))
+
+    // 2. Parallax: hero fades + slides up as you scroll past it
+    //    Only opacity + transform — no blur (triggers full repaint)
+    const hero = document.querySelector('.hd-hero')
+    let rafId = null
+    const onScroll = () => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        const scrollY = globalThis.window.scrollY
+        if (!hero) return
+        const heroH = hero.offsetHeight
+        const progress = Math.min(scrollY / (heroH * 0.85), 1)
+        hero.style.opacity = String(Math.max(0, 1 - progress * 0.9))
+        hero.style.transform = `translateY(${progress * 28}px) scale(${1 - progress * 0.015})`
+      })
+    }
+
+    globalThis.window.addEventListener('scroll', onScroll, { passive: true })
+
+    return () => {
+      io.disconnect()
+      globalThis.window.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
+      // Reset hero style on unmount
+      if (hero) { hero.style.opacity = ''; hero.style.transform = ''; }
+    }
+  }, [isDashboard, displayClient?.client_a_uuid])
+
   const aboutOrbitLayoutProbe = useMemo(
     () => buildAboutOrbitItems(displayClient || clients[0] || {}),
     [displayClient, clients]
@@ -1104,29 +1151,60 @@ export default function Profile({ mode }) {
 
               {/* ── HERO ── */}
               <header className="hd-hero">
-                <div className="hd-hero-avatar">
-                  {clientImageUrl ? <img src={clientImageUrl} alt={name} /> : <span>{initial}</span>}
-                </div>
-                <div className="hd-hero-text">
+                <div className="hd-hero-mesh" aria-hidden="true" />
+
+                {/* QR — direct child of hero so position:absolute works cleanly */}
+                {qrValue && (
+                  <button
+                    type="button"
+                    className="hd-hero-qr"
+                    onClick={() => setExpandedQrClient(c)}
+                    aria-label="Open QR code"
+                    title="Scan to open listing"
+                  >
+                    <QRCodeSVG value={qrValue} size={80} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
+                    <span className="hd-hero-qr-sub">Scan</span>
+                  </button>
+                )}
+
+                {/* Top bar */}
+                <div className="hd-hero-topbar">
                   <p className="hd-hero-eyebrow">Your Listing</p>
-                  <h1 className="hd-hero-name">{name}</h1>
-                  <div className="hd-hero-meta">
-                    <span className="hd-hero-badge">{typeLabel}</span>
+                </div>
+
+                {/* Center: logo + massive name */}
+                <div className="hd-hero-center">
+                  <div className="hd-hero-avatar">
+                    {clientImageUrl
+                      ? <img src={clientImageUrl} alt={name} />
+                      : <span>{initial}</span>}
                   </div>
-                  {qrValue && (
-                    <button
-                      type="button"
-                      className="hd-hero-qr"
-                      onClick={() => setExpandedQrClient(c)}
-                      aria-label="Open QR code"
-                      title="Scan"
-                    >
-                      <QRCodeSVG value={qrValue} size={172} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
-                      <div className="hd-hero-qr-sub">Scan</div>
-                    </button>
-                  )}
+                  <h1 className="hd-hero-name">{name}</h1>
+                </div>
+
+                {/* Bottom: type badge centered between two lines */}
+                <div className="hd-hero-bottom">
+                  <span className="hd-hero-bottom-line" aria-hidden="true" />
+                  <span className="hd-hero-badge">{typeLabel}</span>
+                  <span className="hd-hero-bottom-line" aria-hidden="true" />
                 </div>
               </header>
+
+              {/* ── MARQUEE TICKER ── */}
+              <div className="hd-marquee" aria-hidden="true">
+                <div className="hd-marquee-track">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <span key={i} className="hd-marquee-item">
+                      <span className="hd-marquee-name">{name}</span>
+                      <span className="hd-marquee-sep">◆</span>
+                      <span className="hd-marquee-type">{typeLabel}</span>
+                      <span className="hd-marquee-sep">●</span>
+                      <span className="hd-marquee-name">Go Bahrain</span>
+                      <span className="hd-marquee-sep">◆</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
 
               {/* ── ABOUT ── */}
               {(descSnippet || aboutOrbitItems.length > 0) && (
@@ -1203,22 +1281,26 @@ export default function Profile({ mode }) {
                   <p className="hd-band-sub">Everything at a glance — what you offer and how to find you.</p>
                   <div className="hd-details-split">
                     {detailItems.map((item, i) => (
-                      <div key={i} className="hd-detail-row">
-                        <div className="hd-detail-icon-wrap">
-                          <HdDetailIcon type={item.icon} />
-                        </div>
-                        <div className="hd-detail-label-wrap">
-                          <span className="hd-detail-label">
-                            {item.label}
-                            {item.label === 'Price Range' && <span className="hd-detail-hint"> · per person</span>}
-                          </span>
-                          {item.subline && <span className="hd-detail-subline">{item.subline}</span>}
-                        </div>
+                      <div key={i} className="hd-detail-row hd-detail-row--stagger" style={{ '--stagger': i }}>
+                        {/* Value on top — big & bold */}
                         <span className="hd-detail-value">
-                          {item.label === 'Price Range' && item.value ? (
-                            <>{item.value.replace(/\s*BHD\s*$/i, '').trim()}<span className="hd-detail-currency"> BHD</span></>
-                          ) : item.value}
+                          {item.label === 'Price Range' && item.value
+                            ? <>{item.value.replace(/\s*BHD\s*$/i, '').trim()}<span className="hd-detail-currency"> BHD</span></>
+                            : item.value}
                         </span>
+                        {/* Label + icon below */}
+                        <div className="hd-detail-row-top">
+                          <div className="hd-detail-icon-wrap">
+                            <HdDetailIcon type={item.icon} />
+                          </div>
+                          <div className="hd-detail-label-wrap">
+                            <span className="hd-detail-label">
+                              {item.label}
+                              {item.label === 'Price Range' && <span className="hd-detail-hint"> · per person</span>}
+                            </span>
+                            {item.subline && <span className="hd-detail-subline">{item.subline}</span>}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1226,43 +1308,53 @@ export default function Profile({ mode }) {
               )}
 
               {/* ── GALLERY ── */}
-              {(profilePostsLoading || profilePosts.length > 0) && (
-                <div className="hd-band">
-                  <div className="hd-band-header-row">
-                    <p className="hd-band-label">Gallery</p>
-                    <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
-                  </div>
-                  <h2 className="hd-band-title">Menu Highlights</h2>
-                  <p className="hd-band-sub">Your latest posts — hover to explore.</p>
-                  {profilePostsLoading ? (
-                    <p style={{color:'rgba(255,255,255,0.3)',fontSize:'0.875rem'}}>Loading…</p>
-                  ) : (
-                    <div className="hd-mosaic">
-                      {profilePosts.slice(0, 3).map((post, i) => (
-                        <div key={post.post_uuid || i} className={i === 0 ? 'hd-mosaic-main' : 'hd-mosaic-item'}>
-                          {post.post_image
-                            ? <img src={post.post_image} alt="" loading="lazy" />
-                            : <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">No image</span></div>
-                          }
-                          <div className="hd-mosaic-caption">
-                            <span>{post.description || '—'}</span>
-                          </div>
-                        </div>
-                      ))}
-                      {profilePosts.length < 2 && (
-                        <div className="hd-mosaic-item">
-                          <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                        </div>
-                      )}
-                      {profilePosts.length < 3 && (
-                        <div className="hd-mosaic-item">
-                          <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+              <div className="hd-band">
+                <div className="hd-band-header-row">
+                  <p className="hd-band-label">Gallery</p>
+                  <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
                 </div>
-              )}
+                <h2 className="hd-band-title">Menu Highlights</h2>
+                <p className="hd-band-sub">Your latest posts — hover to explore.</p>
+                {profilePostsLoading ? (
+                  <p style={{color:'rgba(255,255,255,0.3)',fontSize:'0.875rem'}}>Loading…</p>
+                ) : profilePosts.length === 0 ? (
+                  <div className="hd-mosaic">
+                    <div className="hd-mosaic-main">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </div>
+                    <div className="hd-mosaic-item">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </div>
+                    <div className="hd-mosaic-item">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="hd-mosaic">
+                    {profilePosts.slice(0, 3).map((post, i) => (
+                      <div key={post.post_uuid || i} className={i === 0 ? 'hd-mosaic-main' : 'hd-mosaic-item'}>
+                        {post.post_image
+                          ? <img src={post.post_image} alt="" loading="lazy" />
+                          : <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">No image</span></div>
+                        }
+                        <div className="hd-mosaic-caption">
+                          <span>{post.description || '—'}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {profilePosts.length < 2 && (
+                      <div className="hd-mosaic-item">
+                        <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                      </div>
+                    )}
+                    {profilePosts.length < 3 && (
+                      <div className="hd-mosaic-item">
+                        <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* ── TAGS ── */}
               {tagsArr.length > 0 && (
