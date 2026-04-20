@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import './ProfileDashboard.css'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../context/AuthContext'
@@ -11,6 +12,9 @@ import { uploadProfileImage, uploadEventImage, ensureProfileImagesBucket, ensure
 import { api } from '../config/api'
 import MapPicker from '../components/MapPicker'
 import OwnerLocationPicker from '../components/OwnerLocationPicker'
+import { FadeInUp, FadeInLeft, FadeInRight, ScaleIn, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
+import { SkeletonPage, SkeletonDetailsGrid } from '../components/SkeletonLoaders'
+import Business3DModel from '../components/Business3DModel'
 
 const CLIENT_FIELDS = [
   { key: 'business_name', label: 'Business Name', type: 'text', required: true },
@@ -410,9 +414,75 @@ function resolveClientImageUrl(raw) {
   return `${api.supabase.url}/storage/v1/object/public/gobahrain-profile-images/${normalizedPath}`
 }
 
+const BAHRAIN_FACTS = [
+  { emoji: '🏝️', text: 'Bahrain consists of over 30 islands in the Arabian Gulf' },
+  { emoji: '🌴', text: 'The Tree of Life has survived 400+ years in the desert with no water source' },
+  { emoji: '🍽️', text: 'Bahrain is home to the oldest pearl diving tradition in the world' },
+  { emoji: '🦪', text: 'Natural pearls from Bahrain were once the most prized in the world' },
+  { emoji: '☕', text: 'Gahwa (Arabic coffee) is a symbol of hospitality in Bahrain' },
+  { emoji: '🧆', text: 'Machboos is Bahrain\'s beloved national rice dish' },
+  { emoji: '🏛️', text: 'Bahrain Fort is a UNESCO World Heritage Site dating back 4,000 years' },
+  { emoji: '🌅', text: 'Bahrain means "Two Seas" in Arabic' },
+  { emoji: '🍖', text: 'Traditional Bahraini breakfast often includes balaleet — sweet vermicelli with eggs' },
+  { emoji: '🥘', text: 'Muhammar is a traditional sweet rice dish served with fish' },
+  { emoji: '🏪', text: 'Manama Souq has been a trading hub for over 100 years' },
+  { emoji: '🐪', text: 'Camel milk was historically a staple drink in Bahrain' },
+  { emoji: '🎭', text: 'Bahrain hosts the annual Spring of Culture festival' },
+  { emoji: '🍯', text: 'Halwa Bahrainia is a traditional sweet made with saffron and rose water' },
+  { emoji: '🌊', text: 'Bahrain was the center of the ancient Dilmun civilization' },
+]
+
+function SavingOverlayWithFacts() {
+  const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * BAHRAIN_FACTS.length))
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFactIndex((prev) => (prev + 1) % BAHRAIN_FACTS.length)
+    }, 3500)
+    return () => clearInterval(interval)
+  }, [])
+
+  const fact = BAHRAIN_FACTS[factIndex]
+
+  return (
+    <div className="pf-saving-overlay" role="status" aria-live="polite" aria-label="Saving profile">
+      <div className="pf-saving-card pf-saving-card-facts">
+        <div className="pf-saving-head">
+          <span className="pf-spinner pf-spinner-lg" aria-hidden />
+          <div className="pf-saving-titles">
+            <div className="pf-saving-title">Setting up your listing...</div>
+            <div className="pf-saving-sub">
+              This will only take a moment
+            </div>
+          </div>
+        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={factIndex}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+            className="pf-saving-fact"
+          >
+            <span className="pf-saving-fact-emoji">{fact.emoji}</span>
+            <span className="pf-saving-fact-text">{fact.text}</span>
+          </motion.div>
+        </AnimatePresence>
+        <div className="pf-saving-dots">
+          {BAHRAIN_FACTS.map((_, i) => (
+            <span key={i} className={`pf-saving-dot-indicator ${i === factIndex ? 'active' : ''}`} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Profile({ mode }) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const reducedMotion = useReducedMotion()
   const isDashboard = mode === 'dashboard'
   const isEditPage = mode === 'edit'
   const [clients, setClients] = useState([])
@@ -1101,9 +1171,15 @@ export default function Profile({ mode }) {
   if (!user) return null
 
   const isEditing = !!editingClientId
+  const showSavingOverlay = loading && (isEditing || showCreateForm || isEditPage) && clients.length > 0
 
   return (
     <div className="pf-page">
+      {/* ── Saving overlay with rotating facts ── */}
+      {showSavingOverlay && (
+        <SavingOverlayWithFacts />
+      )}
+
       {/* ── Toasts ── */}
       {error && <div className="pf-toast pf-toast-error">{error}</div>}
       {(success.supabase || success.pinecone) && (
@@ -1116,16 +1192,7 @@ export default function Profile({ mode }) {
 
       {/* ── Loading skeleton ── */}
       {loading && clients.length === 0 && (
-        <div className="pf-skeleton-wrap">
-          <div className="pf-skeleton pf-skeleton-banner" />
-          <div className="pf-skeleton-body">
-            <div className="pf-skeleton pf-skeleton-avatar" />
-            <div className="pf-skeleton-lines">
-              <div className="pf-skeleton pf-skeleton-line w60" />
-              <div className="pf-skeleton pf-skeleton-line w40" />
-            </div>
-          </div>
-        </div>
+        <SkeletonPage />
       )}
 
       {/* Dashboard empty state: no profile yet */}
@@ -1188,9 +1255,10 @@ export default function Profile({ mode }) {
         add('Venue', c.venue ?? c.events?.[0]?.venue, 'pin')
         add('Status', c.status ?? c.events?.[0]?.status, 'star')
 
-        const descSnippet = c.description
-          ? (c.description.length > 220 ? c.description.slice(0, 220).trim() + '…' : c.description)
-          : null
+        const descSnippet =
+          typeof c.description === 'string' && c.description.trim()
+            ? c.description.trim()
+            : null
 
         const aboutOrbitItems = buildAboutOrbitItems(c)
 
@@ -1202,45 +1270,67 @@ export default function Profile({ mode }) {
               <header className="hd-hero">
                 <div className="hd-hero-mesh" aria-hidden="true" />
 
-                {/* QR — direct child of hero so position:absolute works cleanly */}
-                {qrValue && (
-                  <button
-                    type="button"
-                    className="hd-hero-qr"
-                    onClick={() => setExpandedQrClient(c)}
-                    aria-label="Open QR code"
-                    title="Scan to open listing"
-                  >
-                    <QRCodeSVG value={qrValue} size={80} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={2} />
-                    <span className="hd-hero-qr-sub">Scan</span>
-                  </button>
-                )}
-
-                {/* Top bar */}
-                <div className="hd-hero-topbar">
-                  <p className="hd-hero-eyebrow">Your Listing</p>
+                {/* 3D Model Background */}
+                <div className="hd-hero-3d">
+                  <Business3DModel type={c.client_type} />
                 </div>
 
                 {/* Center: logo + massive name */}
                 <div className="hd-hero-center">
-                  <div className="hd-hero-avatar">
+                  <motion.div 
+                    className="hd-hero-avatar"
+                    initial={reducedMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.5 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={reducedMotion ? { duration: 0 } : { duration: 0.6, type: 'spring', stiffness: 200 }}
+                  >
                     {clientImageUrl
                       ? <img src={clientImageUrl} alt={name} />
                       : <span>{initial}</span>}
-                  </div>
-                  <h1 className="hd-hero-name">{name}</h1>
+                  </motion.div>
+                  <motion.h1 
+                    className="hd-hero-name"
+                    initial={reducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: reducedMotion ? 0 : 0.2, duration: reducedMotion ? 0 : 0.6 }}
+                  >
+                    {name}
+                  </motion.h1>
                 </div>
 
                 {/* Bottom: type badge centered between two lines */}
-                <div className="hd-hero-bottom">
+                <motion.div 
+                  className="hd-hero-bottom"
+                  initial={reducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: reducedMotion ? 0 : 0.4, duration: reducedMotion ? 0 : 0.5 }}
+                >
                   <span className="hd-hero-bottom-line" aria-hidden="true" />
                   <span className="hd-hero-badge">{typeLabel}</span>
                   <span className="hd-hero-bottom-line" aria-hidden="true" />
-                </div>
+                </motion.div>
               </header>
 
+              {qrValue && (
+                <motion.button
+                  type="button"
+                  className="hd-qr-fab"
+                  onClick={() => setExpandedQrClient(c)}
+                  aria-label="Open listing QR code"
+                  initial={reducedMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.92, y: 12 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ delay: reducedMotion ? 0 : 0.35, duration: reducedMotion ? 0 : 0.4, type: 'spring', stiffness: 260, damping: 22 }}
+                  whileHover={reducedMotion ? undefined : { scale: 1.04, y: -2 }}
+                  whileTap={reducedMotion ? undefined : { scale: 0.97 }}
+                >
+                  <span className="hd-qr-fab-frame" aria-hidden="true">
+                    <QRCodeSVG value={qrValue} size={52} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={1} />
+                  </span>
+                  <span className="hd-qr-fab-caption" aria-hidden="true">Scan</span>
+                </motion.button>
+              )}
+
               {/* ── MARQUEE TICKER ── */}
-              <div className="hd-marquee" aria-hidden="true">
+              <FadeInUp className="hd-marquee" aria-hidden="true">
                 <div className="hd-marquee-track">
                   {Array.from({ length: 8 }).map((_, i) => (
                     <span key={i} className="hd-marquee-item">
@@ -1253,11 +1343,11 @@ export default function Profile({ mode }) {
                     </span>
                   ))}
                 </div>
-              </div>
+              </FadeInUp>
 
               {/* ── ABOUT ── */}
               {(descSnippet || aboutOrbitItems.length > 0) && (
-                <div className="hd-band">
+                <FadeInUp className="hd-band">
                   <div
                     className={`hd-about-grid${aboutOrbitItems.length === 0 ? ' hd-about-grid--solo' : ' hd-about-grid--with-orbit'}`}
                   >
@@ -1316,118 +1406,173 @@ export default function Profile({ mode }) {
                       )}
                     </div>
                   </div>
-                </div>
+                </FadeInUp>
               )}
 
               {/* ── DETAILS ── */}
               {detailItems.length > 0 && (
-                <div className="hd-band">
+                <FadeInUp className="hd-band">
                   <div className="hd-band-header-row">
-                    <p className="hd-band-label">Details</p>
-                    <Link to="/edit" className="hd-action-btn hd-action-btn-primary">Edit Profile</Link>
+                    <motion.p 
+                      className="hd-band-label"
+                      initial={{ opacity: 0, x: -20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.4 }}
+                    >
+                      Details
+                    </motion.p>
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.4 }}
+                    >
+                      <Link to="/edit" className="hd-action-btn hd-action-btn-primary">Edit Profile</Link>
+                    </motion.div>
                   </div>
-                  <h2 className="hd-band-title">Opening hours, pricing & more</h2>
-                  <p className="hd-band-sub">Everything at a glance — what you offer and how to find you.</p>
-                  <div className="hd-details-split">
+                  <FadeInUp delay={0.1}>
+                    <h2 className="hd-band-title">Opening hours, pricing & more</h2>
+                    <p className="hd-band-sub">Everything at a glance — what you offer and how to find you.</p>
+                  </FadeInUp>
+                  <StaggerContainer staggerDelay={0.08} className="hd-details-split">
                     {detailItems.map((item, i) => (
-                      <div key={i} className="hd-detail-row hd-detail-row--stagger" style={{ '--stagger': i }}>
-                        {/* Value on top — big & bold */}
-                        <span className="hd-detail-value">
-                          {item.label === 'Price Range' && item.value
-                            ? <>{item.value.replace(/\s*BHD\s*$/i, '').trim()}<span className="hd-detail-currency"> BHD</span></>
-                            : item.value}
-                        </span>
-                        {/* Label + icon below */}
-                        <div className="hd-detail-row-top">
+                      <StaggerItem key={i}>
+                        <motion.div 
+                          className="hd-detail-row"
+                          whileHover={reducedMotion ? undefined : { scale: 1.02, x: 4 }}
+                          transition={{ type: 'spring', stiffness: 400 }}
+                        >
                           <div className="hd-detail-icon-wrap">
                             <HdDetailIcon type={item.icon} />
                           </div>
                           <div className="hd-detail-label-wrap">
                             <span className="hd-detail-label">
                               {item.label}
-                              {item.label === 'Price Range' && <span className="hd-detail-hint"> · per person</span>}
+                              {item.label === 'Price Range' && <span className="hd-detail-hint"> per person</span>}
                             </span>
-                            {item.subline && <span className="hd-detail-subline">{item.subline}</span>}
                           </div>
-                        </div>
-                      </div>
+                          <span className="hd-detail-value">
+                            {item.label === 'Price Range' && item.value
+                              ? <>{item.value.replace(/\s*BHD\s*$/i, '').trim()}<span className="hd-detail-currency"> BHD</span></>
+                              : item.value}
+                          </span>
+                        </motion.div>
+                      </StaggerItem>
                     ))}
-                  </div>
-                </div>
+                  </StaggerContainer>
+                </FadeInUp>
               )}
 
               {/* ── GALLERY ── */}
-              <div className="hd-band">
+              <FadeInUp className="hd-band">
                 <div className="hd-band-header-row">
-                  <p className="hd-band-label">Gallery</p>
-                  <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
+                  <motion.p 
+                    className="hd-band-label"
+                    initial={{ opacity: 0, x: -20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                  >
+                    Gallery
+                  </motion.p>
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                  >
+                    <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
+                  </motion.div>
                 </div>
-                <h2 className="hd-band-title">Menu Highlights</h2>
-                <p className="hd-band-sub">Your latest posts — hover to explore.</p>
+                <FadeInUp delay={0.1}>
+                  <h2 className="hd-band-title">Menu Highlights</h2>
+                  <p className="hd-band-sub">Your latest posts — hover to explore.</p>
+                </FadeInUp>
                 {profilePostsLoading ? (
-                  <p style={{color:'rgba(255,255,255,0.3)',fontSize:'0.875rem'}}>Loading…</p>
-                ) : profilePosts.length === 0 ? (
                   <div className="hd-mosaic">
-                    <div className="hd-mosaic-main">
-                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                    </div>
-                    <div className="hd-mosaic-item">
-                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                    </div>
-                    <div className="hd-mosaic-item">
-                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                    </div>
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className={i === 0 ? 'hd-mosaic-main skeleton-shimmer' : 'hd-mosaic-item skeleton-shimmer'} />
+                    ))}
                   </div>
+                ) : profilePosts.length === 0 ? (
+                  <StaggerContainer staggerDelay={0.1} className="hd-mosaic">
+                    <StaggerItem className="hd-mosaic-main">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </StaggerItem>
+                    <StaggerItem className="hd-mosaic-item">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </StaggerItem>
+                    <StaggerItem className="hd-mosaic-item">
+                      <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
+                    </StaggerItem>
+                  </StaggerContainer>
                 ) : (
-                  <div className="hd-mosaic">
+                  <StaggerContainer staggerDelay={0.1} className="hd-mosaic">
                     {profilePosts.slice(0, 3).map((post, i) => (
-                      <div key={post.post_uuid || i} className={i === 0 ? 'hd-mosaic-main' : 'hd-mosaic-item'}>
-                        {post.post_image
-                          ? <img src={post.post_image} alt="" loading="lazy" />
-                          : <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">No image</span></div>
-                        }
-                        <div className="hd-mosaic-caption">
-                          <span>{post.description || '—'}</span>
-                        </div>
-                      </div>
+                      <StaggerItem key={post.post_uuid || i} className={i === 0 ? 'hd-mosaic-main' : 'hd-mosaic-item'}>
+                        <motion.div 
+                          style={{ height: '100%' }}
+                          whileHover={reducedMotion ? undefined : { scale: 1.02 }}
+                          transition={{ type: 'spring', stiffness: 300 }}
+                        >
+                          {post.post_image
+                            ? <img src={post.post_image} alt="" loading="lazy" />
+                            : <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">No image</span></div>
+                          }
+                          <div className="hd-mosaic-caption">
+                            <span>{post.description || '—'}</span>
+                          </div>
+                        </motion.div>
+                      </StaggerItem>
                     ))}
                     {profilePosts.length < 2 && (
-                      <div className="hd-mosaic-item">
+                      <StaggerItem className="hd-mosaic-item">
                         <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                      </div>
+                      </StaggerItem>
                     )}
                     {profilePosts.length < 3 && (
-                      <div className="hd-mosaic-item">
+                      <StaggerItem className="hd-mosaic-item">
                         <div className="hd-mosaic-ph"><span className="hd-mosaic-ph-text">Add photos</span></div>
-                      </div>
+                      </StaggerItem>
                     )}
-                  </div>
+                  </StaggerContainer>
                 )}
-              </div>
+              </FadeInUp>
 
               {/* ── TAGS ── */}
               {tagsArr.length > 0 && (
-                <div className="hd-band">
-                  <p className="hd-band-label">Tags</p>
-                  <h2 className="hd-band-title">How visitors find you</h2>
-                  <p className="hd-band-sub">Search keywords that connect your listing to the right audience.</p>
-                  <div className="hd-tags-row">
+                <FadeInUp className="hd-band">
+                  <FadeInLeft>
+                    <p className="hd-band-label">Tags</p>
+                    <h2 className="hd-band-title">How visitors find you</h2>
+                    <p className="hd-band-sub">Search keywords that connect your listing to the right audience.</p>
+                  </FadeInLeft>
+                  <StaggerContainer staggerDelay={0.05} className="hd-tags-row">
                     {tagsArr.map((tag, i) => (
-                      <span key={i} className="hd-tag">#{String(tag).replace(/^#/, '')}</span>
+                      <StaggerItem key={i}>
+                        <motion.span 
+                          className="hd-tag"
+                          whileHover={reducedMotion ? undefined : { scale: 1.1, y: -2 }}
+                          transition={{ type: 'spring', stiffness: 400 }}
+                        >
+                          #{String(tag).replace(/^#/, '')}
+                        </motion.span>
+                      </StaggerItem>
                     ))}
-                  </div>
-                </div>
+                  </StaggerContainer>
+                </FadeInUp>
               )}
 
               {/* ── LOCATIONS ── */}
               {(activeBranches.length > 0 || hasCoords) && (
-                <div className="hd-band">
-                  <p className="hd-band-label">Locations</p>
-                  <h2 className="hd-band-title">Where to find us</h2>
-                  <p className="hd-band-sub">Tap a location to get directions from your current position.</p>
+                <FadeInUp className="hd-band">
+                  <FadeInLeft>
+                    <p className="hd-band-label">Locations</p>
+                    <h2 className="hd-band-title">Where to find us</h2>
+                    <p className="hd-band-sub">Tap a location to get directions from your current position.</p>
+                  </FadeInLeft>
                   <div className="hd-locations-grid">
                     {osmUrl && (
-                      <div className="hd-map-wrap">
+                      <ScaleIn className="hd-map-wrap">
                         <iframe
                           title="Map"
                           src={osmUrl}
@@ -1435,57 +1580,90 @@ export default function Profile({ mode }) {
                           loading="lazy"
                           sandbox="allow-scripts allow-same-origin"
                         />
-                      </div>
+                      </ScaleIn>
                     )}
-                    <div className="hd-locations-list">
+                    <StaggerContainer staggerDelay={0.1} className="hd-locations-list">
                       {activeBranches.length > 0 ? activeBranches.map((b, i) => (
-                        <div key={i} className="hd-location-entry">
-                          <span className="hd-location-idx">Location {i + 1}</span>
-                          <span className="hd-location-name">{b.area_name || `Branch ${i + 1}`}</span>
-                          {b.area_name && <span className="hd-location-addr">{b.area_name}, Bahrain</span>}
-                          {b.lat && b.long && (
-                            <a href={`https://www.google.com/maps?q=${b.lat},${b.long}`} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
-                              Get directions →
-                            </a>
-                          )}
-                        </div>
+                        <StaggerItem key={i}>
+                          <motion.div 
+                            className="hd-location-entry"
+                            whileHover={reducedMotion ? undefined : { x: 8 }}
+                            transition={{ type: 'spring', stiffness: 300 }}
+                          >
+                            <span className="hd-location-idx">Location {i + 1}</span>
+                            <span className="hd-location-name">{b.area_name || `Branch ${i + 1}`}</span>
+                            {b.area_name && <span className="hd-location-addr">{b.area_name}, Bahrain</span>}
+                            {b.lat && b.long && (
+                              <a href={`https://www.google.com/maps?q=${b.lat},${b.long}`} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
+                                Get directions →
+                              </a>
+                            )}
+                          </motion.div>
+                        </StaggerItem>
                       )) : (
-                        <div className="hd-location-entry">
-                          <span className="hd-location-idx">Location 1</span>
-                          <span className="hd-location-name">Manama, Bahrain</span>
-                          <span className="hd-location-addr">Bahrain</span>
-                          {mapsUrl && (
-                            <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
-                              Get directions →
-                            </a>
-                          )}
-                        </div>
+                        <StaggerItem>
+                          <motion.div 
+                            className="hd-location-entry"
+                            whileHover={reducedMotion ? undefined : { x: 8 }}
+                            transition={{ type: 'spring', stiffness: 300 }}
+                          >
+                            <span className="hd-location-idx">Location 1</span>
+                            <span className="hd-location-name">Manama, Bahrain</span>
+                            <span className="hd-location-addr">Bahrain</span>
+                            {mapsUrl && (
+                              <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="hd-link-directions">
+                                Get directions →
+                              </a>
+                            )}
+                          </motion.div>
+                        </StaggerItem>
                       )}
-                    </div>
+                    </StaggerContainer>
                   </div>
-                </div>
+                </FadeInUp>
               )}
 
               {/* ── EMPTY STATE ── */}
               {detailItems.length === 0 && tagsArr.length === 0 && !descSnippet && (
-                <div className="hd-empty-band">
+                <FadeInUp className="hd-empty-band">
                   <h2 className="hd-empty-title">Build your profile</h2>
                   <p className="hd-empty-text">Add details, tags, and locations so customers can discover you.</p>
-                </div>
+                </FadeInUp>
               )}
 
             </div>
 
-            {expandedQrClient && (
-              <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">
-                <div className="pf-modal vp-modal" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
-                  <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
-                  <p className="pf-modal-id">Scan to open this profile</p>
-                  <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
-                </div>
-              </div>
-            )}
+            <AnimatePresence>
+              {expandedQrClient && (
+                <motion.div
+                  key="qr-dash"
+                  className="pf-modal-backdrop vp-modal-bg"
+                  role="presentation"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: reducedMotion ? 0 : 0.2 }}
+                  onClick={() => setExpandedQrClient(null)}
+                >
+                  <motion.div
+                    className="pf-modal vp-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="qr-dash-title"
+                    initial={reducedMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={reducedMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+                    transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 id="qr-dash-title" className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                    <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
+                    <p className="pf-modal-id">Scan to open this profile</p>
+                    <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )
       })()}
@@ -1675,16 +1853,37 @@ export default function Profile({ mode }) {
               </footer>
             </div>
 
-            {expandedQrClient && (
-              <div className="pf-modal-backdrop vp-modal-bg" onClick={() => setExpandedQrClient(null)} role="presentation">
-                <div className="pf-modal vp-modal" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
-                  <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
-                  <p className="pf-modal-id">Scan to open this profile</p>
-                  <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
-                </div>
-              </div>
-            )}
+            <AnimatePresence>
+              {expandedQrClient && (
+                <motion.div
+                  key="qr-visit"
+                  className="pf-modal-backdrop vp-modal-bg"
+                  role="presentation"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: reducedMotion ? 0 : 0.2 }}
+                  onClick={() => setExpandedQrClient(null)}
+                >
+                  <motion.div
+                    className="pf-modal vp-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="qr-visit-title"
+                    initial={reducedMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={reducedMotion ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+                    transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 id="qr-visit-title" className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                    <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
+                    <p className="pf-modal-id">Scan to open this profile</p>
+                    <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )
       })()}

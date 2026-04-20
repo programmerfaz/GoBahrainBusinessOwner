@@ -1,6 +1,18 @@
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import Profile from './Profile'
+
+const easeOut = [0.22, 1, 0.36, 1]
+
+function useReveal(delay = 0) {
+  return {
+    initial: { opacity: 0, y: 28 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: { once: true, margin: '-40px' },
+    transition: { duration: 0.55, delay, ease: easeOut },
+  }
+}
 
 export default function Home() {
   const { user } = useAuth()
@@ -10,59 +22,129 @@ export default function Home() {
   }
 
   return (
-    <div className="landing">
-      <section className="landing-hero">
-        <div className="landing-hero-content">
-          <span className="landing-badge">Kingdom of Bahrain</span>
-          <h1>Showcase Your Business in Bahrain</h1>
-          <p>Join Go Bahrain and connect your restaurant, venue, or event with thousands of visitors exploring the island.</p>
-          <div className="landing-cta">
-            <Link to="/signup" className="btn btn-primary btn-lg">Get Started Free</Link>
-          </div>
-        </div>
-        <div className="landing-hero-visual">
-          <div className="hero-card hero-card-1">
-            <div className="hero-card-icon"><LandingIcon kind="restaurant" /></div>
-            <span>Restaurants</span>
-          </div>
-          <div className="hero-card hero-card-2">
-            <div className="hero-card-icon"><LandingIcon kind="place" /></div>
-            <span>Places</span>
-          </div>
-          <div className="hero-card hero-card-3">
-            <div className="hero-card-icon"><LandingIcon kind="event" /></div>
-            <span>Events</span>
-          </div>
+    <div className="gb-home">
+      <section className="gb-home-hero" aria-labelledby="gb-home-hero-title">
+        <div className="gb-home-hero-bg" aria-hidden="true" />
+        <div className="gb-home-hero-grid">
+          <motion.div className="gb-home-hero-copy" {...useReveal(0)}>
+            <span className="gb-home-kicker">
+              <span className="gb-home-kicker-dot" aria-hidden />
+              Kingdom of Bahrain
+            </span>
+            <h1 id="gb-home-hero-title" className="gb-home-title">
+              <span className="gb-home-title-line">Showcase your</span>
+              <span className="gb-home-title-accent">business</span>
+              <span className="gb-home-title-line">on the island</span>
+            </h1>
+            <p className="gb-home-lead">
+              Join Go Bahrain and connect your restaurant, venue, or event with visitors and locals exploring the Kingdom.
+            </p>
+            <div className="gb-home-actions">
+              <Link to="/signup" className="btn btn-primary btn-lg gb-home-btn-primary">Get started free</Link>
+              <Link to="/signin" className="btn btn-outline btn-lg gb-home-btn-ghost">Sign in</Link>
+            </div>
+            <ul className="gb-home-trust" aria-label="Highlights">
+              <li>Profile &amp; media</li>
+              <li>Posts &amp; updates</li>
+              <li>Discovery-ready</li>
+            </ul>
+          </motion.div>
+
+          <motion.div className="gb-home-bento" {...useReveal(0.08)}>
+            <div className="gb-home-bento-card gb-home-bento-main">
+              <div className="gb-home-bento-glow" aria-hidden />
+              <div className="gb-home-bento-icon"><LandingIcon kind="restaurant" /></div>
+              <div>
+                <span className="gb-home-bento-label">Restaurants</span>
+                <p className="gb-home-bento-desc">Menus, hours, cuisine &amp; specials in one polished listing.</p>
+              </div>
+            </div>
+            <div className="gb-home-bento-card">
+              <div className="gb-home-bento-icon"><LandingIcon kind="place" /></div>
+              <span className="gb-home-bento-label">Places</span>
+              <p className="gb-home-bento-desc">Attractions &amp; venues with maps and visitor context.</p>
+            </div>
+            <div className="gb-home-bento-card">
+              <div className="gb-home-bento-icon"><LandingIcon kind="event" /></div>
+              <span className="gb-home-bento-label">Events</span>
+              <p className="gb-home-bento-desc">Dates, venue, and status for organizers on the go.</p>
+            </div>
+            <div className="gb-home-bento-strip" aria-hidden="true">
+              <span>Go Bahrain</span>
+              <span className="gb-home-strip-sep">◆</span>
+              <span>Tourism &amp; business</span>
+              <span className="gb-home-strip-sep">◆</span>
+              <span>One platform</span>
+            </div>
+          </motion.div>
         </div>
       </section>
 
-      <section className="landing-about">
-        <h2>About Go Bahrain</h2>
-        <p className="landing-about-lead">
-          Go Bahrain is the Tourism &amp; Business Platform for the Kingdom of Bahrain. We help visitors discover the best of the island and help business owners reach them.
-        </p>
-        <ul className="landing-about-list">
-          <li><strong>For visitors</strong> — Find restaurants, places, and events across Bahrain in one place.</li>
-          <li><strong>For business owners</strong> — Create a profile, publish posts, and get discovered by tourists and locals.</li>
-        </ul>
+      <section className="gb-home-marquee" aria-hidden="true">
+        <div className="gb-home-marquee-track">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <span key={i} className="gb-home-marquee-item">
+              Manama · Saar · Riffa · Amwaj · Juffair · Bahrain Bay ·
+            </span>
+          ))}
+        </div>
       </section>
 
-      <section className="landing-features">
-        <div className="feature-card">
-          <div className="feature-icon"><LandingIcon kind="pin" /></div>
-          <h3>Create Your Profile</h3>
-          <p>Set up your restaurant, place, or event with rich details, images, and pricing.</p>
+      <section className="gb-home-about" aria-labelledby="gb-home-about-title">
+        <motion.div className="gb-home-about-inner" {...useReveal(0)}>
+          <p className="gb-home-section-eyebrow" id="gb-home-about-title">About</p>
+          <h2 className="gb-home-section-title">Built for discovery on the island</h2>
+          <p className="gb-home-about-lead">
+            Go Bahrain is the tourism and business platform for the Kingdom of Bahrain. We help visitors find great experiences and help owners present them beautifully.
+          </p>
+          <div className="gb-home-pill-row">
+            <span className="gb-home-pill">Visitors</span>
+            <span className="gb-home-pill">Owners</span>
+            <span className="gb-home-pill">Search-ready</span>
+          </div>
+          <ul className="gb-home-about-list">
+            <li>
+              <strong>For visitors</strong>
+              <span>Restaurants, places, and events in one place — clear hours, pricing cues, and maps.</span>
+            </li>
+            <li>
+              <strong>For business owners</strong>
+              <span>Profiles, posts, and imagery that feel premium without a heavy setup.</span>
+            </li>
+          </ul>
+        </motion.div>
+      </section>
+
+      <section className="gb-home-features" aria-labelledby="gb-home-features-title">
+        <motion.div className="gb-home-features-head" {...useReveal(0)}>
+          <p className="gb-home-section-eyebrow" id="gb-home-features-title">Product</p>
+          <h2 className="gb-home-section-title">Everything you need to stand out</h2>
+        </motion.div>
+        <div className="gb-home-feature-grid">
+          <motion.article className="gb-home-feature gb-home-feature-wide" {...useReveal(0.05)}>
+            <div className="gb-home-feature-icon"><LandingIcon kind="pin" /></div>
+            <h3>Rich profiles</h3>
+            <p>Hours, pricing, cuisine, locations, and imagery — structured so guests skim fast and book faster.</p>
+          </motion.article>
+          <motion.article className="gb-home-feature" {...useReveal(0.1)}>
+            <div className="gb-home-feature-icon"><LandingIcon kind="post" /></div>
+            <h3>Posts &amp; highlights</h3>
+            <p>Share specials, new dishes, and event updates in a feed that feels like your brand.</p>
+          </motion.article>
+          <motion.article className="gb-home-feature" {...useReveal(0.14)}>
+            <div className="gb-home-feature-icon"><LandingIcon kind="globe" /></div>
+            <h3>Tourist-ready</h3>
+            <p>Language-friendly layout and emphasis on what travelers need first: where, when, and what it costs.</p>
+          </motion.article>
         </div>
-        <div className="feature-card">
-          <div className="feature-icon"><LandingIcon kind="post" /></div>
-          <h3>Publish Posts</h3>
-          <p>Share updates, promotions, and images to attract more visitors.</p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon"><LandingIcon kind="globe" /></div>
-          <h3>Reach Tourists</h3>
-          <p>Your business gets discovered by travelers looking for the best of Bahrain.</p>
-        </div>
+      </section>
+
+      <section className="gb-home-bottom-cta" aria-label="Call to action">
+        <motion.div className="gb-home-bottom-inner" {...useReveal(0)}>
+          <h2 className="gb-home-bottom-title">Ready to go live?</h2>
+          <p className="gb-home-bottom-text">Create your free account and publish your first profile in minutes.</p>
+          <Link to="/signup" className="btn btn-primary btn-lg">Create free account</Link>
+        </motion.div>
       </section>
     </div>
   )

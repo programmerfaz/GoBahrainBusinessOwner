@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { signUp } from '../lib/auth'
 import { useAuth } from '../context/AuthContext'
 
 export default function SignUp() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const reduced = useReducedMotion()
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -37,7 +39,12 @@ export default function SignUp() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
+      <motion.div
+        className="auth-card"
+        initial={reduced ? { opacity: 1, y: 0 } : { opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduced ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
         <h1>Sign Up</h1>
         <p className="auth-subtitle">Create your Go Bahrain account</p>
 
@@ -108,15 +115,15 @@ export default function SignUp() {
             />
           </label>
 
-          <button type="submit" className="btn btn-primary" disabled={loading}>
+          <motion.button type="submit" className="btn btn-primary" disabled={loading} whileTap={reduced ? undefined : { scale: 0.98 }}>
             {loading ? 'Creating account...' : 'Sign Up'}
-          </button>
+          </motion.button>
         </form>
 
         <p className="auth-footer">
           Already have an account? <Link to="/signin">Sign in</Link>
         </p>
-      </div>
+      </motion.div>
     </div>
   )
 }

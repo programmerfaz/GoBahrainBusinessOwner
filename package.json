@@ -13,14 +13,18 @@
     "backfill-ai-summaries": "node scripts/backfill-ai-summaries.mjs"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.0",
     "@supabase/supabase-js": "^2.46.1",
     "dotenv": "^16.4.7",
+    "framer-motion": "^12.38.0",
     "leaflet": "^1.9.4",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-leaflet": "^5.0.0",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.3",

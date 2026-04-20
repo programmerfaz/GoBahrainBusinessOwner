@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
+import { FadeInUp, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
 import { useAuth } from '../context/AuthContext'
 import { getClientsByAccount, getClientFull } from '../lib/clients'
 import { getPostsByClient, createPost, updatePost, uploadPostImage } from '../lib/posts'
@@ -69,6 +71,7 @@ const emptyEventForm = () => ({
 
 export default function Posts({ initialSection = 'posts', showTabs = true }) {
   const { user } = useAuth()
+  const reducedMotion = useReducedMotion()
   const [clients, setClients] = useState([])
   const [posts, setPosts] = useState([])
   const [events, setEvents] = useState([])
@@ -408,16 +411,20 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
       {activeSection === 'posts' && clientId && postsLoading && <p className="clients-loading">Loading posts...</p>}
       {activeSection === 'events' && isEventOrganizer && clientId && eventsLoading && <p className="clients-loading">Loading events...</p>}
       {!loading && activeSection === 'posts' && clientId && !postsLoading && posts.length === 0 && !showCreate && (
-        <p className="clients-empty">No posts yet. Create your first post.</p>
+        <FadeInUp className="clients-empty-wrap">
+          <p className="clients-empty">No posts yet. Create your first post.</p>
+        </FadeInUp>
       )}
       {!loading && activeSection === 'events' && isEventOrganizer && clientId && !eventsLoading && events.length === 0 && !showCreateEvent && !editingEvent && (
-        <p className="clients-empty">No events yet. Create your first event.</p>
+        <FadeInUp className="clients-empty-wrap">
+          <p className="clients-empty">No events yet. Create your first event.</p>
+        </FadeInUp>
       )}
 
       {clientId && (
         ((activeSection === 'posts' && posts.length > 0) ||
           (activeSection === 'events' && isEventOrganizer && events.length > 0)) && (
-        <div className="posts-grid">
+        <StaggerContainer staggerDelay={0.07} className="posts-grid">
           {activeSection === 'posts' && posts.map((p, i) => {
             const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
             const created = p.created_at ? new Date(p.created_at).toLocaleDateString() : ''
@@ -425,7 +432,12 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
             const isEditing = editingPost?.post_uuid === p.post_uuid
 
             return (
-              <div key={p.post_uuid} className={`post-card post-card-item ${gradientClass}`}>
+              <StaggerItem key={p.post_uuid} className="posts-grid-cell">
+              <motion.div
+                className={`post-card post-card-item ${gradientClass}`}
+                whileHover={reducedMotion ? undefined : { y: -5 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+              >
                 <div className="post-card-top">
                   {img && (
                     <div className="post-card-image">
@@ -454,7 +466,8 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                     </p>
                   )}
                 </div>
-              </div>
+              </motion.div>
+              </StaggerItem>
             )
           })}
 
@@ -464,7 +477,12 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
             const when = [ev.start_date, ev.start_time].filter(Boolean).join(' ')
 
             return (
-              <div key={ev.event_uuid} className={`post-card post-card-item ${gradientClass}`}>
+              <StaggerItem key={ev.event_uuid} className="posts-grid-cell">
+              <motion.div
+                className={`post-card post-card-item ${gradientClass}`}
+                whileHover={reducedMotion ? undefined : { y: -5 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+              >
                 <div className="post-card-top">
                   {evImage ? (
                     <div className="post-card-image">
@@ -488,10 +506,11 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                     {ev.event_type ? ` · ${ev.event_type}` : ''}
                   </p>
                 </div>
-              </div>
+              </motion.div>
+              </StaggerItem>
             )
           })}
-        </div>
+        </StaggerContainer>
       ))}
 
       {!loading && clients.length > 1 && (
@@ -502,17 +521,20 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
 
       {showFab &&
         createPortal(
-          <button
+          <motion.button
             type="button"
             className="posts-fab"
             onClick={openCreate}
             aria-label={activeSection === 'posts' ? 'Create a post' : 'Create event'}
+            whileHover={reducedMotion ? undefined : { scale: 1.06 }}
+            whileTap={reducedMotion ? undefined : { scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 22 }}
           >
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-          </button>,
+          </motion.button>,
           document.body
         )}
 

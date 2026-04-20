@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { signIn } from '../lib/auth'
 import { useAuth } from '../context/AuthContext'
 
 export default function SignIn() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const reduced = useReducedMotion()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -28,7 +30,12 @@ export default function SignIn() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
+      <motion.div
+        className="auth-card"
+        initial={reduced ? { opacity: 1, y: 0 } : { opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduced ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
         <h1>Sign In</h1>
         <p className="auth-subtitle">Welcome back to Go Bahrain</p>
 
@@ -59,9 +66,9 @@ export default function SignIn() {
             />
           </label>
 
-          <button type="submit" className="btn btn-primary" disabled={loading}>
+          <motion.button type="submit" className="btn btn-primary" disabled={loading} whileTap={reduced ? undefined : { scale: 0.98 }}>
             {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          </motion.button>
         </form>
 
         <p className="auth-footer">
@@ -74,7 +81,7 @@ export default function SignIn() {
             Email <a href="mailto:gobahraintourism@gmail.com">gobahraintourism@gmail.com</a> with your business name and a short description of who you are to receive your credentials.
           </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

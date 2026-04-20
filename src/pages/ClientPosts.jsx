@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
+import { FadeInUp, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
 import { useAuth } from '../context/AuthContext'
 import { getClientFull } from '../lib/clients'
 import { getPostsByClient, createPost, updatePost, uploadPostImage } from '../lib/posts'
@@ -7,6 +9,7 @@ import { getPostsByClient, createPost, updatePost, uploadPostImage } from '../li
 export default function ClientPosts() {
   const { clientId } = useParams()
   const { user } = useAuth()
+  const reducedMotion = useReducedMotion()
   const [client, setClient] = useState(null)
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -132,12 +135,15 @@ export default function ClientPosts() {
       {loading && <p className="clients-loading">Loading posts...</p>}
 
       {!loading && posts.length === 0 && !showCreate && (
-        <p className="clients-empty">No posts yet. Create your first post.</p>
+        <FadeInUp>
+          <p className="clients-empty">No posts yet. Create your first post.</p>
+        </FadeInUp>
       )}
 
       {!loading && (posts.length > 0 || showCreate) && (
-        <div className="posts-grid">
+        <StaggerContainer staggerDelay={0.06} className="posts-grid">
           {showCreate && (
+            <StaggerItem className="posts-grid-cell">
             <div className="post-card post-card-create">
               <form onSubmit={handleCreatePost} className="post-create-form">
                 <h3>New Post</h3>
@@ -180,6 +186,7 @@ export default function ClientPosts() {
                 </div>
               </form>
             </div>
+            </StaggerItem>
           )}
           {posts.map((p, i) => {
             const gradientClass = ['post-card-dark-1', 'post-card-dark-2', 'post-card-dark-3'][i % 3]
@@ -189,7 +196,8 @@ export default function ClientPosts() {
 
             if (isEditing) {
               return (
-                <div key={p.post_uuid} className="post-card post-card-create">
+                <StaggerItem key={p.post_uuid} className="posts-grid-cell">
+                <div className="post-card post-card-create">
                   <form onSubmit={handleUpdatePost} className="post-create-form">
                     <h3>Update Post</h3>
                     <label>
@@ -232,11 +240,17 @@ export default function ClientPosts() {
                     </div>
                   </form>
                 </div>
+                </StaggerItem>
               )
             }
 
             return (
-              <div key={p.post_uuid} className={`post-card post-card-item ${gradientClass}`}>
+              <StaggerItem key={p.post_uuid} className="posts-grid-cell">
+              <motion.div
+                className={`post-card post-card-item ${gradientClass}`}
+                whileHover={reducedMotion ? undefined : { y: -5 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+              >
                 <div className="post-card-top">
                   {img && (
                     <div className="post-card-image">
@@ -265,10 +279,11 @@ export default function ClientPosts() {
                     </p>
                   )}
                 </div>
-              </div>
+              </motion.div>
+              </StaggerItem>
             )
           })}
-        </div>
+        </StaggerContainer>
       )}
     </div>
   )

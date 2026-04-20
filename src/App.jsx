@@ -1,5 +1,6 @@
 import { Routes, Route, Link, NavLink, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import Home from './pages/Home'
 
 const THEME_KEY = 'gobahrain-theme'
@@ -20,11 +21,15 @@ import { useAuth } from './context/AuthContext'
 import { getClientsByAccount } from './lib/clients'
 import './App.css'
 import './pages/index.css'
+import './components/SkeletonLoaders.css'
+
+const MotionNavLink = motion(NavLink)
 
 function App() {
   const { user, logout } = useAuth()
   const [theme, setTheme] = useState(getInitialTheme)
   const [isEventOrganizer, setIsEventOrganizer] = useState(false)
+  const reducedMotion = useReducedMotion()
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -61,27 +66,28 @@ function App() {
       <header className="header">
         <Link to="/" className="logo">Go Bahrain</Link>
         <nav className="nav">
-          <button
+          <motion.button
             type="button"
             className="theme-toggle"
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            whileTap={reducedMotion ? undefined : { scale: 0.92 }}
           >
             {theme === 'dark' ? '☀' : '🌙'}
-          </button>
+          </motion.button>
           {user ? (
             <>
-              <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Home</NavLink>
-              <NavLink to="/edit" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Edit</NavLink>
-              <NavLink to="/posts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Posts</NavLink>
-              {isEventOrganizer && <NavLink to="/events" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Events</NavLink>}
-              <button type="button" className="btn-link" onClick={logout}>Sign Out</button>
+              <MotionNavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Home</MotionNavLink>
+              <MotionNavLink to="/edit" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Edit</MotionNavLink>
+              <MotionNavLink to="/posts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Posts</MotionNavLink>
+              {isEventOrganizer && <MotionNavLink to="/events" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Events</MotionNavLink>}
+              <motion.button type="button" className="btn-link" onClick={logout} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign Out</motion.button>
             </>
           ) : (
             <>
-              <NavLink to="/signin" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Sign in</NavLink>
-              <NavLink to="/signup" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>Sign up</NavLink>
+              <MotionNavLink to="/signin" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign in</MotionNavLink>
+              <MotionNavLink to="/signup" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign up</MotionNavLink>
             </>
           )}
         </nav>
