@@ -1,12 +1,11 @@
-import { api } from '../config/api'
+import { backendFetch } from './backendFetch'
 
 /**
  * Create an event for an event-organizer client.
  * Backend inserts into events table and refreshes Pinecone vectors.
  */
 export async function createEventForClient(clientUuid, event) {
-  const base = api.backendUrl || (typeof location !== 'undefined' ? location.origin : '')
-  const res = await fetch(`${base}/api/create-event`, {
+  const res = await backendFetch('/api/create-event', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_a_uuid: clientUuid, event }),
@@ -27,8 +26,7 @@ export async function createEventForClient(clientUuid, event) {
 }
 
 export async function updateEventForClient(clientUuid, eventUuid, event) {
-  const base = api.backendUrl || (typeof location !== 'undefined' ? location.origin : '')
-  const res = await fetch(`${base}/api/update-event`, {
+  const res = await backendFetch('/api/update-event', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_a_uuid: clientUuid, event_uuid: eventUuid, event }),

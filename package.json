@@ -4,14 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server:dev\" \"vite\"",
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm run server:dev\" \"vite\"",
+    "start": "npm run dev",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "server:dev": "node --watch server/index.js"
+    "server:dev": "node --watch server/index.js",
+    "backfill-ai-summaries": "node scripts/backfill-ai-summaries.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.46.1",
+    "dotenv": "^16.4.7",
     "leaflet": "^1.9.4",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",

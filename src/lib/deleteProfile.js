@@ -1,11 +1,10 @@
-import { api } from '../config/api'
+import { backendFetch } from './backendFetch'
 
 /**
  * Delete profile: removes from Pinecone and Supabase (client + all linked tables)
  */
 export async function deleteProfile(clientUuid) {
-  const base = api.backendUrl || (typeof location !== 'undefined' ? location.origin : '')
-  const res = await fetch(`${base}/api/delete-profile`, {
+  const res = await backendFetch('/api/delete-profile', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_a_uuid: clientUuid }),

@@ -2,7 +2,9 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-dotenv.config({ path: path.join(__dirname, '..', '.env') })
+const rootDir = path.join(__dirname, '..')
+dotenv.config({ path: path.join(rootDir, '.env') })
+dotenv.config({ path: path.join(rootDir, '.env.local') })
 import express from 'express'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
@@ -30,6 +32,142 @@ const supabaseAdmin = supabaseUrl && supabaseServiceRoleKey
 function sanitizePathSegment(value, fallback = 'file') {
   const v = String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '')
   return v || fallback
+}
+
+/** Remove null/empty strings/empty objects for a smaller, cleaner JSON payload to the summarizer */
+function stripEmptyDeep(value) {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'string') {
+    const t = value.trim()
+    return t === '' ? undefined : t
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value
+  if (Array.isArray(value)) {
+    const arr = value.map(stripEmptyDeep).filter((v) => v !== undefined)
+    return arr.length ? arr : undefined
+  }
+  if (typeof value === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) {
+      const s = stripEmptyDeep(v)
+      if (s !== undefined) out[k] = s
+    }
+    return Object.keys(out).length ? out : undefined
+  }
+  return undefined
+}
+
+/**
+ * Writes ai_summary via SECURITY DEFINER RPC only — same anon Supabase client as other profile RPCs (no service role).
+ * Summary is stored in Supabase only (NOT Pinecone).
+ */
+async function persistClientAiSummary(clientUuid, summaryText) {
+  const id = String(clientUuid || '').trim()
+  if (!id) return { ok: false, error: 'Missing client id' }
+  const text = String(summaryText || '').trim()
+  if (!text) return { ok: false, error: 'Empty summary' }
+  if (!supabase) return { ok: false, error: 'Supabase not configured' }
+
+  const { error: rpcError } = await supabase.rpc('set_client_ai_summary', {
+    p_client_uuid: id,
+    p_summary: text,
+  })
+  if (!rpcError) return { ok: true, error: null }
+
+  const rpcMsg = rpcError.message || String(rpcError)
+  const missingFn = rpcError.code === '42883' || /set_client_ai_summary|function .* does not exist/i.test(rpcMsg)
+  if (missingFn) {
+    return {
+      ok: false,
+      error:
+        'Could not save ai_summary: run migration 014 (ai_summary column) and 015_set_client_ai_summary_rpc.sql in the Supabase SQL editor.',
+    }
+  }
+  return { ok: false, error: rpcMsg }
+}
+
+/**
+ * Fetches full profile via RPC, asks OpenAI for a multi-paragraph summary, persists to client.ai_summary.
+ * Never throws. Intended right after Supabase profile writes (before or after Pinecone).
+ */
+async function refreshClientAiSummary(clientUuid) {
+  try {
+    const id = String(clientUuid || '').trim()
+    if (!id || !openaiKey) {
+      return { aiSummaryOk: false, aiSummaryError: !openaiKey ? 'OPENAI_API_KEY not set' : 'Missing client id' }
+    }
+    if (!supabase) {
+      return { aiSummaryOk: false, aiSummaryError: 'Supabase not configured' }
+    }
+
+    const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', { p_client_uuid: id })
+    if (fetchError || fullProfile == null) {
+      return { aiSummaryOk: false, aiSummaryError: fetchError?.message || 'Failed to fetch profile' }
+    }
+
+    const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
+    // Do not feed prior ai_summary into the model (summary is Supabase-only, not search-indexed).
+    const { ai_summary: _priorSummary, ...profileWithoutSummary } = profile
+    const stripped = stripEmptyDeep(profileWithoutSummary) || {}
+    const payload = {
+      ...stripped,
+      client_a_uuid: stripped.client_a_uuid || id,
+      business_name: String(stripped.business_name || profile.business_name || profile.name || '').trim(),
+      client_type: String(stripped.client_type || profile.client_type || '').trim(),
+    }
+    const model = process.env.OPENAI_SUMMARY_MODEL || 'gpt-4o-mini'
+
+    let summaryText = ''
+    try {
+      const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.25,
+          max_tokens: 2500,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You write comprehensive business profile summaries for Go Bahrain, a local discovery directory in Bahrain. You will receive one JSON object with every stored field for a client (base profile plus type-specific fields and, for event organizers, an events array). Write several clear paragraphs of prose. Organize by topic (business identity, description, offerings or venue details, location and coordinates if present, hours or timings, pricing and ratings, tags, branches if present, and listed events with dates/venues when present). Mention every non-empty field from the JSON in natural language; do not dump key-value pairs. Omit fields that are absent or empty. Stay strictly factual — do not invent information.',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify(payload),
+            },
+          ],
+        }),
+      })
+      if (!chatRes.ok) {
+        const errBody = await chatRes.text()
+        return { aiSummaryOk: false, aiSummaryError: `OpenAI chat failed: ${errBody.slice(0, 500)}` }
+      }
+      const chatData = await chatRes.json()
+      const choice0 = chatData?.choices?.[0]
+      summaryText = String(choice0?.message?.content || '').trim()
+      if (!summaryText) {
+        const fr = choice0?.finish_reason ?? ''
+        return {
+          aiSummaryOk: false,
+          aiSummaryError: `Empty summary from model (finish_reason=${fr || 'unknown'}). Try a shorter description or OPENAI_SUMMARY_MODEL=gpt-4o-mini.`,
+        }
+      }
+    } catch (e) {
+      return { aiSummaryOk: false, aiSummaryError: String(e?.message || e) }
+    }
+
+    const persist = await persistClientAiSummary(id, summaryText)
+    if (!persist.ok) {
+      console.error('[AI summary] persist failed for client', id, persist.error)
+      return { aiSummaryOk: false, aiSummaryError: persist.error || 'Failed to save summary' }
+    }
+    console.log('[AI summary] stored for client', id)
+    return { aiSummaryOk: true, aiSummaryError: null }
+  } catch (e) {
+    console.error('[AI summary] unexpected failure for client', clientUuid, e)
+    return { aiSummaryOk: false, aiSummaryError: String(e?.message || e) }
+  }
 }
 
 app.post('/api/upload-image', express.raw({ type: 'image/*', limit: '8mb' }), async (req, res) => {
@@ -71,7 +209,8 @@ app.post('/api/upload-image', express.raw({ type: 'image/*', limit: '8mb' }), as
   }
 })
 
-function buildSemanticText(p) {
+function buildSemanticText(raw) {
+  const p = raw && typeof raw === 'object' ? { ...raw } : {}
   const parts = []
   if (p.business_name) parts.push(`${p.business_name} is a ${p.client_type || 'client'} in Bahrain.`)
   if (p.description) parts.push(`Description: ${p.description}.`)
@@ -116,6 +255,8 @@ const PINECONE_METADATA_EXCLUDE = new Set([
   'event_uuid',
   'client_image',
   'image',
+  /** Supabase-only narrative; never index in Pinecone */
+  'ai_summary',
   // Location is packed into location_json below.
   'lat',
   'long',
@@ -179,8 +320,23 @@ function readLongitude(form) {
   return String(form?.lng ?? form?.long ?? '').trim() || null
 }
 
+/** DB enum / RPC may use `event`; forms and Pinecone merge logic use `event_organizer`. */
+function normalizeClientTypeChoice(raw) {
+  const s = String(raw || '').trim().toLowerCase()
+  if (s === 'event') return 'event_organizer'
+  return s
+}
+
+/** Same as normalizeClientTypeChoice for profile JSON from Supabase. */
+function normalizeClientTypeFromProfile(t) {
+  const s = String(t || '').trim().toLowerCase()
+  if (s === 'event') return 'event_organizer'
+  return s || 'client'
+}
+
 /** Build unified merged payload from fetched profile — same structure as create */
 function buildMergedPayloadFromProfile(profile, tags) {
+  const effectiveType = normalizeClientTypeFromProfile(profile.client_type)
   const tagsArr = Array.isArray(profile.tags) ? profile.tags : (typeof profile.tags === 'string' && profile.tags) ? profile.tags.split(',').map(t => t.trim()).filter(Boolean) : (tags || [])
   const base = {
     client_a_uuid: profile.client_a_uuid,
@@ -189,7 +345,7 @@ function buildMergedPayloadFromProfile(profile, tags) {
     description: profile.description || '',
     rating: profile.rating ?? '',
     price_range: profile.price_range ?? '',
-    client_type: profile.client_type || 'client',
+    client_type: effectiveType === 'none' ? 'client' : effectiveType,
     client_image: profile.client_image || null,
     lat: profile.lat ?? '',
     long: profile.long ?? '',
@@ -199,7 +355,7 @@ function buildMergedPayloadFromProfile(profile, tags) {
     openclosed_state: 'open',
     record_type: 'client',
   }
-  if (profile.client_type === 'restaurant') {
+  if (effectiveType === 'restaurant') {
     return {
       ...base,
       cuisine: profile.cuisine || '',
@@ -210,12 +366,12 @@ function buildMergedPayloadFromProfile(profile, tags) {
       branch: normalizeBranches(profile.branch),
     }
   }
-  if (profile.client_type === 'place') {
+  if (effectiveType === 'place') {
     const placeName = profile.place_name || profile.name || ''
     return { ...base, category: profile.category || '', indoor_outdoor: profile.indoor_outdoor || '', place_uuid: profile.place_uuid || '', name: placeName, place_name: placeName, place_description: profile.place_description || profile.description || '', opening_time: profile.opening_time ?? '', closing_time: profile.closing_time ?? '', entry_cost: profile.entry_cost ?? '', suitable_for: profile.suitable_for || '' }
   }
-  // event_organizer: event_type/indoor_outdoor from events row; events[] for multi-vector
-  if (profile.client_type === 'event_organizer') {
+  // event_organizer (DB may label as event): event_type/indoor_outdoor on client; events[] for multi-vector
+  if (effectiveType === 'event_organizer') {
     const evBase = { ...base, event_type: profile.event_type || '', indoor_outdoor: profile.indoor_outdoor || '', record_type: 'event' }
     const events = Array.isArray(profile.events) ? profile.events : []
     if (events.length === 0) return { ...evBase }
@@ -338,7 +494,8 @@ async function refreshPineconeFromClient(clientUuid, tags = null) {
 
   if (openaiKey && pineconeKey && pineconeHost) {
     const idsToDelete = [clientUuid]
-    if (profile.client_type === 'event_organizer' && Array.isArray(profile.events)) {
+    const eff = normalizeClientTypeFromProfile(profile.client_type)
+    if (eff === 'event_organizer' && Array.isArray(profile.events)) {
       profile.events.forEach((ev) => {
         if (ev?.event_uuid) idsToDelete.push(ev.event_uuid)
       })
@@ -396,7 +553,7 @@ app.post('/api/submit-profile', async (req, res) => {
     }
 
     const clientUuid = crypto.randomUUID()
-    const typeChoice = form.client_type_choice || ''
+    const typeChoice = normalizeClientTypeChoice(form.client_type_choice || '')
 
     const tags = form.tags
       ? String(form.tags).split(',').map(t => t.trim()).filter(Boolean)
@@ -494,68 +651,10 @@ app.post('/api/submit-profile', async (req, res) => {
       }
     }
 
-    let mergedPayload = { ...clientRow }
-    mergedPayload.tags = tags
-    if (typeChoice === 'restaurant' && pRestaurant) mergedPayload = buildMergedPayload(clientRow, typeChoice, pRestaurant)
-    else if (typeChoice === 'place' && pPlaceClient && pPlace) mergedPayload = buildMergedPayload(clientRow, typeChoice, { ...pPlaceClient, ...pPlace, place_name: pPlace.name, place_description: pPlace.description })
-    else if (typeChoice === 'event_organizer' && pEvent) mergedPayload = buildMergedPayload(clientRow, typeChoice, { ...pEvent, record_type: 'event', indoor_outdoor: pEvent.indoor_outdoor || pEvent.event_indoor_outdoor || '' })
-
-    let pineconeOk = false
-    let pineconeError = null
-
-    if (!openaiKey || !pineconeKey || !pineconeHost) {
-      pineconeError = 'OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_HOST must be set in server .env'
-      console.error('[Pinecone]', pineconeError)
-    } else {
-      const rawId = typeChoice === 'event_organizer' && pEvent?.event_uuid ? pEvent.event_uuid : mergedPayload.client_a_uuid
-      const vectorId = String(rawId || '').trim()
-      if (!vectorId) {
-        pineconeError = 'Missing client id for Pinecone vector'
-      } else {
-      const text = buildSemanticText(mergedPayload)
-      const openaiRes = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-      })
-      if (!openaiRes.ok) {
-        const err = await openaiRes.text()
-        pineconeError = `OpenAI failed: ${err}`
-        console.error('[OpenAI]', pineconeError)
-      } else {
-        const openaiData = await openaiRes.json()
-        const embedding = openaiData?.data?.[0]?.embedding
-        if (!Array.isArray(embedding)) {
-          pineconeError = 'Invalid embedding from OpenAI'
-        } else {
-          const metadata = buildMetadataFromPayload(mergedPayload)
-          const pcUrl = `${pineconeHost.replace(/\/$/, '')}/vectors/upsert`
-          const pcRes = await fetch(pcUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Api-Key': pineconeKey,
-              'X-Pinecone-Api-Version': '2025-10',
-            },
-            body: JSON.stringify({
-              vectors: [{ id: vectorId, values: embedding, metadata }],
-            }),
-          })
-          const pcBody = await pcRes.text()
-          if (!pcRes.ok) {
-            const dim = embedding.length
-            pineconeError = `Pinecone failed: ${pcBody} (embedding length=${dim}; Pinecone index dimension must match — text-embedding-3-small is usually 1536)`
-            console.error('[Pinecone]', pineconeError)
-          } else {
-            pineconeOk = true
-            console.log('[Pinecone] Upserted', mergedPayload.business_name, vectorId)
-          }
-        }
-      }
-      }
-    }
-
-    return res.json({ clientData, supabaseOk: true, pineconeOk, pineconeError })
+    // AI summary stored in Supabase only (not Pinecone)
+    const aiSummaryMeta = await refreshClientAiSummary(clientUuid)
+    const { pineconeOk, pineconeError } = await refreshPineconeFromClient(clientUuid, tags)
+    return res.json({ clientData, supabaseOk: true, pineconeOk, pineconeError, ...aiSummaryMeta })
   } catch (e) {
     return res.status(500).json({ error: String(e), pineconeError: String(e) })
   }
@@ -569,7 +668,7 @@ app.put('/api/update-profile', async (req, res) => {
       return res.status(400).json({ error: 'Missing form or client_a_uuid' })
     }
 
-    const typeChoice = form.client_type_choice || ''
+    const typeChoice = normalizeClientTypeChoice(form.client_type_choice || '')
     const tags = form.tags ? String(form.tags).split(',').map(t => t.trim()).filter(Boolean) : []
 
     let pRestaurant = null
@@ -647,8 +746,16 @@ app.put('/api/update-profile', async (req, res) => {
     }
 
     if (skipPinecone) {
-      return res.json({ supabaseOk: true, pineconeOk: false, pineconeError: null })
+      const aiSummaryMeta = await refreshClientAiSummary(client_a_uuid)
+      return res.json({
+        supabaseOk: true,
+        pineconeOk: false,
+        pineconeError: null,
+        ...aiSummaryMeta,
+      })
     }
+
+    const aiSummaryMeta = await refreshClientAiSummary(client_a_uuid)
     let { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
 
     // Fallback: if refresh-from-db fails, upsert directly from current request payload.
@@ -683,7 +790,10 @@ app.put('/api/update-profile', async (req, res) => {
       }
     }
 
-    return res.json({ supabaseOk: true, pineconeOk, pineconeError })
+    if (!pineconeOk) {
+      console.warn('[Pinecone] update-profile index failed for', client_a_uuid, pineconeError)
+    }
+    return res.json({ supabaseOk: true, pineconeOk, pineconeError, ...aiSummaryMeta })
   } catch (e) {
     return res.status(500).json({ error: String(e), pineconeError: String(e) })
   }
@@ -715,7 +825,7 @@ app.post('/api/create-event', async (req, res) => {
     const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', { p_client_uuid: client_a_uuid })
     if (fetchError || !fullProfile) return res.status(404).json({ error: 'Client profile not found' })
     const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
-    if (profile.client_type !== 'event_organizer') {
+    if (normalizeClientTypeFromProfile(profile.client_type) !== 'event_organizer') {
       return res.status(400).json({ error: 'Create event is allowed only for event organizer profiles' })
     }
 
@@ -730,9 +840,10 @@ app.post('/api/create-event', async (req, res) => {
     const tags = Array.isArray(profile.tags)
       ? profile.tags
       : (typeof profile.tags === 'string' ? profile.tags.split(',').map((t) => t.trim()).filter(Boolean) : [])
+    const aiSummaryMeta = await refreshClientAiSummary(client_a_uuid)
     const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
 
-    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError })
+    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError, ...aiSummaryMeta })
   } catch (e) {
     return res.status(500).json({ error: String(e), pineconeError: String(e) })
   }
@@ -749,7 +860,7 @@ app.put('/api/update-event', async (req, res) => {
     const { data: fullProfile, error: fetchError } = await supabase.rpc('get_client_full', { p_client_uuid: client_a_uuid })
     if (fetchError || !fullProfile) return res.status(404).json({ error: 'Client profile not found' })
     const profile = typeof fullProfile === 'string' ? JSON.parse(fullProfile) : fullProfile
-    if (profile.client_type !== 'event_organizer') {
+    if (normalizeClientTypeFromProfile(profile.client_type) !== 'event_organizer') {
       return res.status(400).json({ error: 'Update event is allowed only for event organizer profiles' })
     }
 
@@ -781,9 +892,10 @@ app.put('/api/update-event', async (req, res) => {
     const tags = Array.isArray(profile.tags)
       ? profile.tags
       : (typeof profile.tags === 'string' ? profile.tags.split(',').map((t) => t.trim()).filter(Boolean) : [])
+    const aiSummaryMeta = await refreshClientAiSummary(client_a_uuid)
     const { pineconeOk, pineconeError } = await refreshPineconeFromClient(client_a_uuid, tags)
 
-    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError })
+    return res.json({ event: eventData, supabaseOk: true, pineconeOk, pineconeError, ...aiSummaryMeta })
   } catch (e) {
     return res.status(500).json({ error: String(e), pineconeError: String(e) })
   }
@@ -856,9 +968,36 @@ app.get('/api/health', (req, res) => {
       pineconeHostLoaded: Boolean(pineconeHost),
       pineconeHostname: hostLabel,
     },
+    aiSummary: {
+      openaiKeyLoaded: Boolean(openaiKey),
+      supabaseConfigured: Boolean(supabase),
+      note: 'On Save: OpenAI chat → public.set_client_ai_summary RPC (migration 015) → ai_summary column (014). Not stored in Pinecone.',
+    },
     note:
       'Profile saves call OpenAI embeddings then Pinecone upsert. Index dimension must match the embedding (text-embedding-3-small → 1536). GET /api/health/pinecone-probe?debug=1 requires PINECONE_DEBUG=1 in .env.',
   })
+})
+
+/**
+ * One-off or bulk backfill: generate and store ai_summary for a client (same logic as save).
+ * If REGENERATE_AI_SUMMARY_SECRET is set, require header x-regenerate-ai-summary-secret with that value.
+ */
+app.post('/api/regenerate-ai-summary', async (req, res) => {
+  try {
+    const expected = process.env.REGENERATE_AI_SUMMARY_SECRET
+    const sent = String(req.headers['x-regenerate-ai-summary-secret'] || req.body?.secret || '')
+    if (expected && sent !== expected) {
+      return res.status(403).json({ error: 'Invalid or missing x-regenerate-ai-summary-secret header' })
+    }
+    const clientUuid = String(req.body?.client_a_uuid || '').trim()
+    if (!clientUuid) {
+      return res.status(400).json({ error: 'Missing client_a_uuid in JSON body' })
+    }
+    const out = await refreshClientAiSummary(clientUuid)
+    return res.status(out.aiSummaryOk ? 200 : 422).json(out)
+  } catch (e) {
+    return res.status(500).json({ error: String(e?.message || e) })
+  }
 })
 
 app.get('/api/health/pinecone-probe', async (req, res) => {

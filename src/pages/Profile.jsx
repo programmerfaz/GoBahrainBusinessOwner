@@ -338,7 +338,11 @@ function profileToForm(p) {
   })
   f.lng = p.lng != null ? String(p.lng) : (p.long != null ? String(p.long) : '')
   f.rating = p.rating != null ? String(p.rating) : ''
-  f.client_type_choice = p.client_type === 'client' ? 'none' : (p.client_type || '')
+  {
+    let ct = p.client_type === 'client' ? 'none' : String(p.client_type || '')
+    if (ct === 'event') ct = 'event_organizer'
+    f.client_type_choice = ct
+  }
   if (p.client_type === 'restaurant') {
     RESTAURANT_FIELDS.forEach(({ key }) => {
       const v = p[key]
@@ -418,6 +422,7 @@ export default function Profile({ mode }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState({ supabase: false, pinecone: false })
   const [pineconeError, setPineconeError] = useState('')
+  const [aiSummaryError, setAiSummaryError] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingClientId, setEditingClientId] = useState(null)
   const [form, setForm] = useState(emptyForm())
@@ -857,13 +862,20 @@ export default function Profile({ mode }) {
     setError('')
     setSuccess({ supabase: false, pinecone: false })
     setPineconeError('')
+    setAiSummaryError('')
     setUpdatingHeaderImage(true)
     try {
       const url = await uploadProfileImage(file, clientUuid)
       const patchForm = profileToForm(c)
       patchForm.client_image = url
-      patchForm.client_type_choice = c.client_type === 'client' ? 'none' : (c.client_type || patchForm.client_type_choice)
-      await updateProfile(patchForm, clientUuid, { skipPinecone: true })
+      {
+        let ct = c.client_type === 'client' ? 'none' : String(c.client_type || patchForm.client_type_choice || '')
+        if (ct === 'event') ct = 'event_organizer'
+        patchForm.client_type_choice = ct
+      }
+      const up = await updateProfile(patchForm, clientUuid, { skipPinecone: true })
+      if (!up.aiSummaryOk && up.aiSummaryError) setAiSummaryError(up.aiSummaryError)
+      else setAiSummaryError('')
       const refreshed = await getClientFull(clientUuid)
       setDisplayClient(refreshed || { ...c, client_image: url })
       setClients((prev) => prev.map((x) => (x.client_a_uuid === clientUuid ? { ...x, client_image: url } : x)))
@@ -952,6 +964,7 @@ export default function Profile({ mode }) {
     }
     setError('')
     setPineconeError('')
+    setAiSummaryError('')
     setLoading(true)
     setSuccess({ supabase: false, pinecone: false })
     try {
@@ -968,15 +981,32 @@ export default function Profile({ mode }) {
           closing_time: hours.close || '',
         }
       }
-      const { supabaseOk, pineconeOk, pineconeError: pe } = await submitProfile(formWithUploads, user.account_uuid)
+      const { supabaseOk, pineconeOk, pineconeError: pe, aiSummaryOk, aiSummaryError: ase } = await submitProfile(
+        formWithUploads,
+        user.account_uuid,
+      )
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
-      if (!pineconeOk && pe) setPineconeError(pe)
+      if (!pineconeOk) {
+        setPineconeError(
+          pe ||
+            'Search index did not update. Run the backend with OPENAI_API_KEY, PINECONE_API_KEY, and PINECONE_HOST set (see .env.example).',
+        )
+      }
+      if (!aiSummaryOk) {
+        setAiSummaryError(
+          ase ||
+            'AI summary was not saved. Set OPENAI_API_KEY on the server and run Supabase migrations 014 (ai_summary column) and 015 (set_client_ai_summary RPC).',
+        )
+      } else {
+        setAiSummaryError('')
+      }
       getClientsByAccount(user.account_uuid).then(setClients)
       setTimeout(() => {
         setShowCreateForm(false)
         setForm(emptyForm())
         setSuccess({ supabase: false, pinecone: false })
         setPineconeError('')
+        setAiSummaryError('')
         setClientImagePreview('')
         setEventImagePreview('')
         setPendingClientImageFile(null)
@@ -1007,6 +1037,7 @@ export default function Profile({ mode }) {
     }
     setError('')
     setPineconeError('')
+    setAiSummaryError('')
     setLoading(true)
     setSuccess({ supabase: false, pinecone: false })
     try {
@@ -1023,15 +1054,32 @@ export default function Profile({ mode }) {
           closing_time: hours.close || '',
         }
       }
-      const { supabaseOk, pineconeOk, pineconeError: pe } = await updateProfile(formWithUploads, editingClientId)
+      const { supabaseOk, pineconeOk, pineconeError: pe, aiSummaryOk, aiSummaryError: ase } = await updateProfile(
+        formWithUploads,
+        editingClientId,
+      )
       setSuccess({ supabase: !!supabaseOk, pinecone: !!pineconeOk })
-      if (!pineconeOk && pe) setPineconeError(pe)
+      if (!pineconeOk) {
+        setPineconeError(
+          pe ||
+            'Search index did not update. Run the backend with OPENAI_API_KEY, PINECONE_API_KEY, and PINECONE_HOST set (see .env.example).',
+        )
+      }
+      if (!aiSummaryOk) {
+        setAiSummaryError(
+          ase ||
+            'AI summary was not saved. Set OPENAI_API_KEY on the server and run Supabase migrations 014 (ai_summary column) and 015 (set_client_ai_summary RPC).',
+        )
+      } else {
+        setAiSummaryError('')
+      }
       getClientsByAccount(user.account_uuid).then(setClients)
       setTimeout(() => {
         setEditingClientId(null)
         setForm(emptyForm())
         setSuccess({ supabase: false, pinecone: false })
         setPineconeError('')
+        setAiSummaryError('')
         setClientImagePreview('')
         setEventImagePreview('')
         setPendingClientImageFile(null)
@@ -1062,6 +1110,7 @@ export default function Profile({ mode }) {
         <div className="pf-toast pf-toast-success">
           Profile saved successfully!
           {pineconeError && <span className="pf-toast-sub"> (search index pending)</span>}
+          {aiSummaryError && <span className="pf-toast-sub"> (AI summary: {aiSummaryError})</span>}
         </div>
       )}
 

@@ -1,5 +1,4 @@
--- Run in Supabase SQL Editor
--- Fetches a single client with full joined subtype data
+-- get_client_full: treat DB client_type `event` like `event_organizer` (see create_client_profile enum mapping).
 
 CREATE OR REPLACE FUNCTION public.get_client_full(p_client_uuid uuid)
 RETURNS jsonb
@@ -40,7 +39,6 @@ BEGIN
       'tags', COALESCE(c->'tags', '[]'::jsonb)
     );
   ELSIF ctype IN ('event_organizer', 'event') THEN
-    -- Event organizer profile is on client (event_type, indoor_outdoor). Enum may be stored as `event`.
     result := c || jsonb_build_object('tags', COALESCE(c->'tags', '[]'::jsonb));
     BEGIN
       SELECT COALESCE(jsonb_agg(ev ORDER BY ev->>'start_date' NULLS LAST), '[]'::jsonb)

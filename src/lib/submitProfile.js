@@ -1,11 +1,10 @@
-import { api } from '../config/api'
+import { backendFetch } from './backendFetch'
 
 /**
  * Submit profile: backend handles Supabase insert + Pinecone upsert
  */
 export async function submitProfile(form, accountUuid) {
-  const base = api.backendUrl || (typeof location !== 'undefined' ? location.origin : '')
-  const res = await fetch(`${base}/api/submit-profile`, {
+  const res = await backendFetch('/api/submit-profile', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ form, accountUuid }),
@@ -22,5 +21,7 @@ export async function submitProfile(form, accountUuid) {
     supabaseOk: data.supabaseOk ?? true,
     pineconeOk: data.pineconeOk ?? false,
     pineconeError: data.pineconeError ?? null,
+    aiSummaryOk: data.aiSummaryOk ?? false,
+    aiSummaryError: data.aiSummaryError ?? null,
   }
 }

@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { api } from '../config/api'
+import { backendFetch } from './backendFetch'
 
 /**
  * Fetch all clients for an account (uses RPC to bypass RLS)
@@ -39,10 +39,9 @@ export async function getClientFull(clientUuid) {
 }
 
 export function fetchTagsFromPinecone(clientUuid) {
-  const base = api.backendUrl || (typeof window !== 'undefined' && window.location ? window.location.origin : '')
-  if (!base) return Promise.resolve(null)
-  return fetch(`${base}/api/client/${clientUuid}/pinecone-tags`)
-    .then(r => r.json())
-    .then(d => (Array.isArray(d?.tags) && d.tags.length ? d.tags : null))
+  if (!clientUuid) return Promise.resolve(null)
+  return backendFetch(`/api/client/${encodeURIComponent(clientUuid)}/pinecone-tags`)
+    .then((r) => r.json())
+    .then((d) => (Array.isArray(d?.tags) && d.tags.length ? d.tags : null))
     .catch(() => null)
 }
