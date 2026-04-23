@@ -27,8 +27,20 @@
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
+    "@tailwindcss/vite": "^4.2.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "concurrently": "^9.1.0",
+    "lucide-react": "^1.8.0",
+    "postcss": "^8.5.10",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.3",
+    "typescript": "^6.0.3",
     "vite": "^5.4.10"
   }
 }

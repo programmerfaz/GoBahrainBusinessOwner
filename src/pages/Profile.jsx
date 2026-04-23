@@ -177,6 +177,7 @@ const TAG_OPTIONS = [
 ]
 const CUISINE_OPTIONS = [
   'Arabic / Middle Eastern',
+  'Local',
   'Indian',
   'American',
   'Italian',
@@ -211,6 +212,19 @@ function normalizePriceRangeText(value) {
     .replace(/\s+/g, ' ')
     .replace(/–/g, '-')
     .toLowerCase()
+}
+
+function formatDisplayName(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  // Only auto-titlecase when the value is entirely lowercase (common DB input),
+  // so we don't break intentional casing like "McDonald's" or acronyms.
+  const shouldTitleCase = raw === raw.toLowerCase()
+  if (!shouldTitleCase) return raw
+  return raw
+    .split(/\s+/)
+    .map((word) => word.replace(/^[a-z]/, (ch) => ch.toUpperCase()))
+    .join(' ')
 }
 
 function parseTags(value) {
@@ -248,6 +262,12 @@ function parseCommaList(value) {
     out.push(normalized)
   }
   return out
+}
+
+function autoGrowTextarea(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
 }
 
 function toTwo(n) {
@@ -512,6 +532,7 @@ export default function Profile({ mode }) {
   const [profilePosts, setProfilePosts] = useState([])
   const [profilePostsLoading, setProfilePostsLoading] = useState(false)
   const headerImageInputRef = useRef(null)
+  const descriptionRef = useRef(null)
   const clientImageInputRef = useRef(null)
   const eventImageInputRef = useRef(null)
 
@@ -524,6 +545,11 @@ export default function Profile({ mode }) {
     globalThis.window.addEventListener('resize', onResize)
     return () => globalThis.window.removeEventListener('resize', onResize)
   }, [])
+
+  // Grow the description textarea even when pre-filled (edit mode / loaded profile).
+  useEffect(() => {
+    autoGrowTextarea(descriptionRef.current)
+  }, [form.description])
 
   // ── Cinematic scroll animations ──
   useEffect(() => {
@@ -1207,7 +1233,7 @@ export default function Profile({ mode }) {
       {/* ══════════════ HOME DASHBOARD ══════════════ */}
       {!loading && clients.length > 0 && isDashboard && (() => {
         const c = displayClient || clients[0]
-        const name = c.business_name || c.name || 'Unnamed'
+        const name = formatDisplayName(c.business_name || c.name || 'Unnamed')
         const typeLabel = (c.client_type || 'business').replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
         const clientImageUrl = resolveClientImageUrl(c.client_image)
         const initial = name.charAt(0).toUpperCase()
@@ -1656,7 +1682,9 @@ export default function Profile({ mode }) {
                     transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <h3 id="qr-dash-title" className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                    <h3 id="qr-dash-title" className="pf-modal-title">
+                      {formatDisplayName(expandedQrClient.business_name || expandedQrClient.name || 'Profile')}
+                    </h3>
                     <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
                     <p className="pf-modal-id">Scan to open this profile</p>
                     <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
@@ -1671,7 +1699,7 @@ export default function Profile({ mode }) {
       {/* ══════════════ VISIT PROFILE (public / tourism layout – not for home) ══════════════ */}
       {!loading && clients.length > 0 && !isDashboard && !isEditPage && !showCreateForm && !isEditing && (() => {
         const c = displayClient || clients[0]
-        const name = c.business_name || c.name || 'Unnamed'
+        const name = formatDisplayName(c.business_name || c.name || 'Unnamed')
         const nameParts = name.trim().split(/\s+/)
         const nameFirst = nameParts.slice(0, -1).join(' ')
         const nameLast = nameParts.length > 1 ? nameParts[nameParts.length - 1] : name
@@ -1876,7 +1904,9 @@ export default function Profile({ mode }) {
                     transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <h3 id="qr-visit-title" className="pf-modal-title">{expandedQrClient.business_name || expandedQrClient.name || 'Profile'}</h3>
+                    <h3 id="qr-visit-title" className="pf-modal-title">
+                      {formatDisplayName(expandedQrClient.business_name || expandedQrClient.name || 'Profile')}
+                    </h3>
                     <QRCodeSVG value={String(expandedQrClient.qrcode || expandedQrClient.client_a_uuid || '').trim()} size={260} level="M" bgColor="#F7F0E3" fgColor="#0A1929" marginSize={4} />
                     <p className="pf-modal-id">Scan to open this profile</p>
                     <button type="button" className="vp-btn vp-btn-gold" onClick={() => setExpandedQrClient(null)}>Close</button>
@@ -1906,36 +1936,60 @@ export default function Profile({ mode }) {
           </div>
 
           <div className="pf-form-layout">
-            {/* ── Left: photo widget ── */}
-            <div className="pf-form-photo-col">
-              <div
-                className="pf-photo-widget"
-                role="button"
-                tabIndex={0}
-                onClick={() => !uploadingClientImage && clientImageInputRef.current?.click()}
-                onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !uploadingClientImage) { e.preventDefault(); clientImageInputRef.current?.click() } }}
-                aria-label="Upload business photo"
-              >
-                <input ref={clientImageInputRef} type="file" accept="image/*" onChange={handleClientImageChange} disabled={uploadingClientImage} className="pf-hidden-input" aria-hidden />
-                {(clientImagePreview || form.client_image) ? (
-                  <>
-                    <img src={clientImagePreview || form.client_image} alt="Profile" className="pf-photo-img" />
-                    <div className="pf-photo-overlay">
-                      {uploadingClientImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={20} /><span>Change photo</span></>}
+            {/* Top row: photo + quick tips (prevents tall empty left column) */}
+            <div className="pf-form-top-row">
+              <div className="pf-form-photo-col">
+                <div
+                  className="pf-photo-widget"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => !uploadingClientImage && clientImageInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !uploadingClientImage) {
+                      e.preventDefault()
+                      clientImageInputRef.current?.click()
+                    }
+                  }}
+                  aria-label="Upload business photo"
+                >
+                  <input
+                    ref={clientImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleClientImageChange}
+                    disabled={uploadingClientImage}
+                    className="pf-hidden-input"
+                    aria-hidden
+                  />
+                  {(clientImagePreview || form.client_image) ? (
+                    <>
+                      <img src={clientImagePreview || form.client_image} alt="Profile" className="pf-photo-img" />
+                      <div className="pf-photo-overlay">
+                        {uploadingClientImage ? <span className="pf-spinner pf-spinner-lg" /> : <><CameraIcon size={20} /><span>Change photo</span></>}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="pf-photo-empty">
+                      <CameraIcon size={36} />
+                      <span className="pf-photo-empty-title">{uploadingClientImage ? 'Uploading…' : 'Add logo / photo'}</span>
+                      <span className="pf-photo-empty-hint">Click to upload</span>
                     </div>
-                  </>
-                ) : (
-                  <div className="pf-photo-empty">
-                    <CameraIcon size={36} />
-                    <span className="pf-photo-empty-title">{uploadingClientImage ? 'Uploading…' : 'Add logo / photo'}</span>
-                    <span className="pf-photo-empty-hint">Click to upload</span>
-                  </div>
-                )}
+                  )}
+                </div>
+                <p className="pf-photo-tip">JPG, PNG or WebP · Max 5 MB</p>
               </div>
-              <p className="pf-photo-tip">JPG, PNG or WebP · Max 5 MB</p>
+
+              <div className="pf-form-top-tips" aria-label="Profile tips">
+                <div className="pf-form-top-tips-title">Quick tips</div>
+                <ul className="pf-form-top-tips-list">
+                  <li>Use a clear logo/photo on a plain background.</li>
+                  <li>Write 2–3 short sentences in the description.</li>
+                  <li>Set hours + price range so customers know what to expect.</li>
+                </ul>
+              </div>
             </div>
 
-            {/* ── Right: fields ── */}
+            {/* Fields */}
             <div className="pf-form-fields-col">
 
               {/* Core info section */}
@@ -1951,7 +2005,20 @@ export default function Profile({ mode }) {
                   </div>
                   <div className="pf-field pf-field-full">
                     <label className="pf-label" htmlFor="f-description">Description</label>
-                    <textarea id="f-description" className="pf-input pf-textarea" name="description" value={form.description || ''} onChange={handleChange} placeholder="What makes your business special?" rows={3} />
+                    <textarea
+                      id="f-description"
+                      className="pf-input pf-textarea"
+                      ref={descriptionRef}
+                      name="description"
+                      value={form.description || ''}
+                      onChange={(e) => {
+                        handleChange(e)
+                        autoGrowTextarea(e.currentTarget)
+                      }}
+                      onInput={(e) => autoGrowTextarea(e.currentTarget)}
+                      placeholder="What makes your business special?"
+                      rows={3}
+                    />
                   </div>
                   <div className="pf-field">
                     <label className="pf-label" htmlFor="f-price_range">Price Range</label>
@@ -2014,8 +2081,14 @@ export default function Profile({ mode }) {
                       <input id="f-timings" type="hidden" name="timings" value={form.timings || ''} readOnly />
                     </div>
                   </div>
-                  <div className="pf-field">
-                    <label className="pf-label" htmlFor="f-tags">Tags</label>
+                  <div className="pf-field" data-category="tags">
+                    <div className="pf-field-head">
+                      <label className="pf-label" htmlFor="f-tags">
+                        <span className="pf-label-icon" aria-hidden>#</span>
+                        Tags
+                      </label>
+                      <span className="pf-field-hint">Help customers discover your business</span>
+                    </div>
                     {showRestaurantFields ? (
                       <div className="pf-tags-input-wrap">
                         <div className="pf-tag-options" id="f-tags">
@@ -2037,7 +2110,7 @@ export default function Profile({ mode }) {
                                 setTagDraft('')
                               }
                             }}
-                            placeholder="Add your own tags"
+                            placeholder="Type a tag and press Enter…"
                           />
                         </div>
                         <input type="hidden" name="tags" value={parseTags(form.tags).join(', ')} readOnly />
@@ -2088,9 +2161,6 @@ export default function Profile({ mode }) {
                 </div>
                 {showRestaurantFields && (
                   <>
-                    <div className="pf-location-add-branch">
-                      <button type="button" className="pf-btn pf-btn-sm pf-btn-ghost" onClick={handleAddBranch}>+ Add Branch</button>
-                    </div>
                     {(Array.isArray(form.branch) ? form.branch : []).length === 0 ? null : (
                       <div className="pf-branches">
                         {(Array.isArray(form.branch) ? form.branch : []).map((b, index) => (
@@ -2128,6 +2198,9 @@ export default function Profile({ mode }) {
                         ))}
                       </div>
                     )}
+                    <div className="pf-location-add-branch">
+                      <button type="button" className="pf-btn pf-btn-sm pf-btn-ghost" onClick={handleAddBranch}>+ Add Branch</button>
+                    </div>
                   </>
                 )}
               </div>
@@ -2140,9 +2213,30 @@ export default function Profile({ mode }) {
                     <span className="pf-section-head-label">Restaurant Details</span>
                   </div>
                   <div className="pf-grid">
-                    {RESTAURANT_FIELDS.filter(f => f.type !== 'checkbox').map((f) => (
-                      <div key={f.key} className={`pf-field${(f.key === 'cuisine' || f.key === 'meal_type' || f.key === 'food_type') ? ' pf-field-full' : ''}`}>
-                        <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                    {RESTAURANT_FIELDS.filter(f => f.type !== 'checkbox').map((f) => {
+                      const isPicker = f.key === 'cuisine' || f.key === 'meal_type' || f.key === 'food_type'
+                      const categoryMeta = {
+                        cuisine: { icon: '🍝', hint: 'Choose every cuisine you serve' },
+                        meal_type: { icon: '🌅', hint: 'When are you open for service?' },
+                        food_type: { icon: '🥦', hint: 'Help dietary-conscious guests find you' },
+                      }[f.key] || { icon: '✏️', hint: '' }
+                      return (
+                      <div key={f.key} className={`pf-field${isPicker ? ' pf-field-full' : ''}`} data-category={f.key}>
+                        {isPicker ? (
+                          <div className="pf-field-head">
+                            <label className="pf-label" htmlFor={`f-${f.key}`}>
+                              <span className="pf-label-icon" aria-hidden>{categoryMeta.icon}</span>
+                              {f.label}{f.required && <span className="pf-required"> *</span>}
+                              {(() => {
+                                const count = parseCommaList(form[f.key]).length
+                                return count > 0 ? <span className="pf-label-count">{count}</span> : null
+                              })()}
+                            </label>
+                            <span className="pf-field-hint">{categoryMeta.hint}</span>
+                          </div>
+                        ) : (
+                          <label className="pf-label" htmlFor={`f-${f.key}`}>{f.label}{f.required && <span className="pf-required"> *</span>}</label>
+                        )}
                         {f.key === 'cuisine' ? (
                           <div className="pf-tags-input-wrap">
                             <div className="pf-tag-options">
@@ -2158,15 +2252,19 @@ export default function Profile({ mode }) {
                               ))}
                             </div>
                             {parseCommaList(form.cuisine).length > 0 && (
-                              <div className="pf-cuisine-selected">
-                                {parseCommaList(form.cuisine).map((item) => (
-                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
-                                    <span>{item}</span>
-                                    <button type="button" onClick={() => removeCuisine(item)} aria-label={`Remove ${item}`}>×</button>
-                                  </span>
-                                ))}
+                              <div className="pf-selected-panel">
+                                <span className="pf-selected-label">Selected</span>
+                                <div className="pf-cuisine-selected">
+                                  {parseCommaList(form.cuisine).map((item) => (
+                                    <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                      <span>{item}</span>
+                                      <button type="button" onClick={() => removeCuisine(item)} aria-label={`Remove ${item}`}>×</button>
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             )}
+                            <div className="pf-manual-divider"><span>Can't find yours?</span></div>
                             <div className="pf-cuisine-manual-row">
                               <input
                                 id="f-cuisine"
@@ -2175,7 +2273,7 @@ export default function Profile({ mode }) {
                                 value={cuisineDraft}
                                 onChange={(e) => setCuisineDraft(e.target.value)}
                                 onKeyDown={handleCuisineDraftKeyDown}
-                                placeholder="Add cuisine manually"
+                                placeholder="Type a cuisine and press Enter"
                               />
                               <button
                                 type="button"
@@ -2185,7 +2283,7 @@ export default function Profile({ mode }) {
                                   setCuisineDraft('')
                                 }}
                               >
-                                Add manually
+                                Add
                               </button>
                             </div>
                             <input type="hidden" name="cuisine" value={form.cuisine || ''} readOnly />
@@ -2205,15 +2303,19 @@ export default function Profile({ mode }) {
                               ))}
                             </div>
                             {parseCommaList(form.meal_type).length > 0 && (
-                              <div className="pf-cuisine-selected">
-                                {parseCommaList(form.meal_type).map((item) => (
-                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
-                                    <span>{item}</span>
-                                    <button type="button" onClick={() => removeMealType(item)} aria-label={`Remove ${item}`}>×</button>
-                                  </span>
-                                ))}
+                              <div className="pf-selected-panel">
+                                <span className="pf-selected-label">Selected</span>
+                                <div className="pf-cuisine-selected">
+                                  {parseCommaList(form.meal_type).map((item) => (
+                                    <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                      <span>{item}</span>
+                                      <button type="button" onClick={() => removeMealType(item)} aria-label={`Remove ${item}`}>×</button>
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             )}
+                            <div className="pf-manual-divider"><span>Or add a custom meal time</span></div>
                             <div className="pf-cuisine-manual-row">
                               <input
                                 id="f-meal_type"
@@ -2222,7 +2324,7 @@ export default function Profile({ mode }) {
                                 value={mealTypeDraft}
                                 onChange={(e) => setMealTypeDraft(e.target.value)}
                                 onKeyDown={handleMealTypeDraftKeyDown}
-                                placeholder="Add meal type manually"
+                                placeholder="e.g. Brunch, Late night"
                               />
                               <button
                                 type="button"
@@ -2232,7 +2334,7 @@ export default function Profile({ mode }) {
                                   setMealTypeDraft('')
                                 }}
                               >
-                                Add manually
+                                Add
                               </button>
                             </div>
                             <input type="hidden" name="meal_type" value={form.meal_type || ''} readOnly />
@@ -2252,15 +2354,19 @@ export default function Profile({ mode }) {
                               ))}
                             </div>
                             {parseCommaList(form.food_type).length > 0 && (
-                              <div className="pf-cuisine-selected">
-                                {parseCommaList(form.food_type).map((item) => (
-                                  <span key={item.toLowerCase()} className="pf-cuisine-chip">
-                                    <span>{item}</span>
-                                    <button type="button" onClick={() => removeFoodType(item)} aria-label={`Remove ${item}`}>×</button>
-                                  </span>
-                                ))}
+                              <div className="pf-selected-panel">
+                                <span className="pf-selected-label">Selected</span>
+                                <div className="pf-cuisine-selected">
+                                  {parseCommaList(form.food_type).map((item) => (
+                                    <span key={item.toLowerCase()} className="pf-cuisine-chip">
+                                      <span>{item}</span>
+                                      <button type="button" onClick={() => removeFoodType(item)} aria-label={`Remove ${item}`}>×</button>
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                             )}
+                            <div className="pf-manual-divider"><span>Add a custom diet</span></div>
                             <div className="pf-cuisine-manual-row">
                               <input
                                 id="f-food_type"
@@ -2269,7 +2375,7 @@ export default function Profile({ mode }) {
                                 value={foodTypeDraft}
                                 onChange={(e) => setFoodTypeDraft(e.target.value)}
                                 onKeyDown={handleFoodTypeDraftKeyDown}
-                                placeholder="Add food type manually"
+                                placeholder="e.g. Halal, Keto"
                               />
                               <button
                                 type="button"
@@ -2279,7 +2385,7 @@ export default function Profile({ mode }) {
                                   setFoodTypeDraft('')
                                 }}
                               >
-                                Add manually
+                                Add
                               </button>
                             </div>
                             <input type="hidden" name="food_type" value={form.food_type || ''} readOnly />
@@ -2288,7 +2394,8 @@ export default function Profile({ mode }) {
                           <input id={`f-${f.key}`} className="pf-input" type="text" name={f.key} value={form[f.key] || ''} onChange={handleChange} placeholder={f.placeholder} required={f.required} />
                         )}
                       </div>
-                    ))}
+                      )
+                    })}
                     <div className="pf-field pf-field-checkbox">
                       <label className="pf-checkbox-label">
                         <input type="checkbox" name="isfoodtruck" checked={form.isfoodtruck || false} onChange={handleChange} className="pf-checkbox" />

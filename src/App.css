@@ -37,10 +37,14 @@
   100% { transform: translate(28px, 28px); }
 }
 
-.app > .main,
-.app > .footer {
+.app > .main {
   position: relative;
   z-index: 1;
+}
+
+.app > .footer {
+  position: relative;
+  z-index: 0;
 }
 
 /* ─── Header ─── */

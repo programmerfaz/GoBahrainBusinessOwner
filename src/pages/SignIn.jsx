@@ -37,7 +37,7 @@ export default function SignIn() {
         transition={{ duration: reduced ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
         <h1>Sign In</h1>
-        <p className="auth-subtitle">Welcome back to Go Bahrain</p>
+        <p className="auth-subtitle">Welcome back to SiyahaBH</p>
 
         <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
           {error && <div className="auth-error">{error}</div>}

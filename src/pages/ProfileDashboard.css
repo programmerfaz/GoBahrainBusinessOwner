@@ -490,7 +490,7 @@
   word-break: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
-  text-transform: lowercase;
+  text-transform: none;
   text-align: center;
   animation: hd-clip-reveal 0.55s var(--ease-out) 0.1s both;
   /* Gradient text */

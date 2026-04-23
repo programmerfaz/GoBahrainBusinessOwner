@@ -1,17 +1,8 @@
-import { Routes, Route, Link, NavLink, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { Routes, Route, Link, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import Home from './pages/Home'
-
-const THEME_KEY = 'gobahrain-theme'
-
-function getInitialTheme() {
-  try {
-    const stored = localStorage.getItem(THEME_KEY)
-    if (stored === 'light' || stored === 'dark') return stored
-  } catch (_) {}
-  return 'dark'
-}
+import { useGbTheme } from './context/ThemeContext'
 import Profile from './pages/Profile'
 import Posts from './pages/Posts'
 import ClientPosts from './pages/ClientPosts'
@@ -24,19 +15,15 @@ import './pages/index.css'
 import './components/SkeletonLoaders.css'
 
 const MotionNavLink = motion(NavLink)
+const BusinessListingPage = lazy(() => import('./pages/BusinessListingPage'))
 
 function App() {
+  const location = useLocation()
+  const hideChrome = location.pathname.startsWith('/listing/')
   const { user, logout } = useAuth()
-  const [theme, setTheme] = useState(getInitialTheme)
+  const { theme, toggleTheme } = useGbTheme()
   const [isEventOrganizer, setIsEventOrganizer] = useState(false)
   const reducedMotion = useReducedMotion()
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    try {
-      localStorage.setItem(THEME_KEY, theme)
-    } catch (_) {}
-  }, [theme])
 
   useEffect(() => {
     let cancelled = false
@@ -63,13 +50,14 @@ function App() {
 
   return (
     <div className="app">
+      {!hideChrome && (
       <header className="header">
-        <Link to="/" className="logo">Go Bahrain</Link>
+        <Link to="/" className="logo">SiyahaBH</Link>
         <nav className="nav">
           <motion.button
             type="button"
             className="theme-toggle"
-            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            onClick={toggleTheme}
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             whileTap={reducedMotion ? undefined : { scale: 0.92 }}
@@ -92,8 +80,17 @@ function App() {
           )}
         </nav>
       </header>
+      )}
       <main className="main">
         <Routes>
+          <Route
+            path="/listing/pink-salt-grills"
+            element={
+              <Suspense fallback={null}>
+                <BusinessListingPage />
+              </Suspense>
+            }
+          />
           <Route path="/" element={<Home />} />
           <Route path="/signin" element={user ? <Navigate to="/" replace /> : <SignIn />} />
           <Route path="/signup" element={user ? <Navigate to="/" replace /> : <SignUp />} />
@@ -104,6 +101,7 @@ function App() {
           <Route path="/events" element={user ? <Posts initialSection="events" showTabs={false} /> : <Navigate to="/" replace />} />
         </Routes>
       </main>
+      {!hideChrome && (
       <footer className="footer gb-footer">
         <div className="gb-footer-surface">
           <div className="gb-footer-top">
@@ -115,7 +113,7 @@ function App() {
                 <span className="gb-footer-mark-dot" />
               </div>
               <div className="gb-footer-brand-text">
-                <div className="gb-footer-logo">Go Bahrain</div>
+                <div className="gb-footer-logo">SiyahaBH</div>
                 <div className="gb-footer-tagline">Find. Book. Explore.</div>
               </div>
             </div>
@@ -126,6 +124,7 @@ function App() {
                 <NavLink to="/" className="gb-footer-link">Home</NavLink>
                 <NavLink to="/edit" className="gb-footer-link">Edit</NavLink>
                 <NavLink to="/posts" className="gb-footer-link">Posts</NavLink>
+                <NavLink to="/listing/pink-salt-grills" className="gb-footer-link">Sample restaurant listing</NavLink>
               </div>
 
               <div className="gb-footer-col">
@@ -145,7 +144,7 @@ function App() {
           </div>
 
           <div className="gb-footer-bottom">
-            <div className="gb-footer-legal-pill">© {new Date().getFullYear()} Go Bahrain. All rights reserved.</div>
+            <div className="gb-footer-legal-pill">© {new Date().getFullYear()} SiyahaBH. All rights reserved.</div>
             <div className="gb-footer-social" aria-label="Social links">
               <a className="gb-footer-social-btn" href="#" onClick={(e) => e.preventDefault()} aria-label="LinkedIn">in</a>
               <a className="gb-footer-social-btn" href="#" onClick={(e) => e.preventDefault()} aria-label="WhatsApp">wa</a>
@@ -154,6 +153,7 @@ function App() {
           </div>
         </div>
       </footer>
+      )}
     </div>
   )
 }

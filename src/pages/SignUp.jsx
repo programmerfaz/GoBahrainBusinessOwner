@@ -46,7 +46,7 @@ export default function SignUp() {
         transition={{ duration: reduced ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
         <h1>Sign Up</h1>
-        <p className="auth-subtitle">Create your Go Bahrain account</p>
+        <p className="auth-subtitle">Create your SiyahaBH account</p>
 
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-error">{error}</div>}

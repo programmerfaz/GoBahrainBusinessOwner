@@ -626,9 +626,6 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                   <span className="post-compose-price-heading" id="post-compose-price-label">
                     Price (optional)
                   </span>
-                  <p className="post-compose-price-hint">
-                    0 = no price. ±1 BHD per tap; type decimals in the field. Max {POST_PRICE_BHD_MAX}.
-                  </p>
                   <div
                     className="post-compose-price-stepper"
                     role="group"

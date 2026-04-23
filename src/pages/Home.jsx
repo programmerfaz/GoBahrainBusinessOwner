@@ -37,7 +37,7 @@ export default function Home() {
               <span className="gb-home-title-line">on the island</span>
             </h1>
             <p className="gb-home-lead">
-              Join Go Bahrain and connect your restaurant, venue, or event with visitors and locals exploring the Kingdom.
+              Join SiyahaBH and connect your restaurant, venue, or event with visitors and locals exploring the Kingdom.
             </p>
             <div className="gb-home-actions">
               <Link to="/signup" className="btn btn-primary btn-lg gb-home-btn-primary">Get started free</Link>
@@ -48,6 +48,11 @@ export default function Home() {
               <li>Posts &amp; updates</li>
               <li>Discovery-ready</li>
             </ul>
+            <p className="gb-home-sample-listing">
+              <Link to="/listing/pink-salt-grills" className="gb-home-sample-listing-link">
+                See sample restaurant listing
+              </Link>
+            </p>
           </motion.div>
 
           <motion.div className="gb-home-bento" {...useReveal(0.08)}>
@@ -70,7 +75,7 @@ export default function Home() {
               <p className="gb-home-bento-desc">Dates, venue, and status for organizers on the go.</p>
             </div>
             <div className="gb-home-bento-strip" aria-hidden="true">
-              <span>Go Bahrain</span>
+              <span>SiyahaBH</span>
               <span className="gb-home-strip-sep">◆</span>
               <span>Tourism &amp; business</span>
               <span className="gb-home-strip-sep">◆</span>

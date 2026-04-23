@@ -117,6 +117,14 @@ async function refreshClientAiSummary(clientUuid) {
     }
     const model = process.env.OPENAI_SUMMARY_MODEL || 'gpt-4o-mini'
 
+    function clampSummaryToWordLimit(text, maxWords) {
+      const s = String(text || '').trim()
+      if (!s) return ''
+      const words = s.split(/\s+/).filter(Boolean)
+      if (words.length <= maxWords) return s
+      return `${words.slice(0, maxWords).join(' ')}…`
+    }
+
     let summaryText = ''
     try {
       const chatRes = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -125,12 +133,13 @@ async function refreshClientAiSummary(clientUuid) {
         body: JSON.stringify({
           model,
           temperature: 0.25,
-          max_tokens: 2500,
+          // ~300–350 words target (hard-capped again below)
+          max_tokens: 650,
           messages: [
             {
               role: 'system',
               content:
-                'You write comprehensive business profile summaries for Go Bahrain, a local discovery directory in Bahrain. You will receive one JSON object with every stored field for a client (base profile plus type-specific fields and, for event organizers, an events array). Write several clear paragraphs of prose. Organize by topic (business identity, description, offerings or venue details, location and coordinates if present, hours or timings, pricing and ratings, tags, branches if present, and listed events with dates/venues when present). Mention every non-empty field from the JSON in natural language; do not dump key-value pairs. Omit fields that are absent or empty. Stay strictly factual — do not invent information.',
+                'You write SHORT business profile summaries for Go Bahrain (Bahrain local discovery directory). You will receive one JSON object with stored fields for a client (base profile plus type-specific fields and, for event organizers, an events array). Write 1–2 short paragraphs (optionally a final short bullet list with key facts). Prioritize the most important information; do NOT try to mention every field. Omit absent/empty fields. Stay strictly factual — do not invent information. HARD LIMIT: 300–350 words maximum. If you exceed the limit, rewrite shorter before answering.',
             },
             {
               role: 'user',
@@ -157,6 +166,7 @@ async function refreshClientAiSummary(clientUuid) {
       return { aiSummaryOk: false, aiSummaryError: String(e?.message || e) }
     }
 
+    summaryText = clampSummaryToWordLimit(summaryText, 350)
     const persist = await persistClientAiSummary(id, summaryText)
     if (!persist.ok) {
       console.error('[AI summary] persist failed for client', id, persist.error)
