@@ -49,8 +49,18 @@ const MENU_IMAGES = [
   'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=900&q=80',
 ]
 
-const MARQUEE =
-  'GO BAHRAIN • PINK SALT GRILLS • RESTAURANT • MANAMA • GO BAHRAIN • PINK SALT GRILLS • RESTAURANT • MANAMA • '
+const LISTING_MARQUEE_TAIL = ' • PINK SALT GRILLS • RESTAURANT • MANAMA • '
+
+function ListingMarqueeRepeatingBlock() {
+  return (
+    <>
+      <span className="normal-case">SiyahaBH</span>
+      {LISTING_MARQUEE_TAIL}
+      <span className="normal-case">SiyahaBH</span>
+      {LISTING_MARQUEE_TAIL}
+    </>
+  )
+}
 
 function titleCase(input: string) {
   return input
@@ -255,8 +265,12 @@ export default function BusinessListingPage() {
           aria-hidden
         >
           <div className="flex w-max animate-gb-listing-marquee whitespace-nowrap font-heading text-sm font-semibold uppercase tracking-[0.28em] text-[var(--color-primary)]">
-            <span className="pr-16">{MARQUEE}</span>
-            <span className="pr-16">{MARQUEE}</span>
+            <span className="pr-16">
+              <ListingMarqueeRepeatingBlock />
+            </span>
+            <span className="pr-16">
+              <ListingMarqueeRepeatingBlock />
+            </span>
           </div>
         </motion.div>
 

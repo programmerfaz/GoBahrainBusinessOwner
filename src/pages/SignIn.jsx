@@ -20,7 +20,7 @@ export default function SignIn() {
     try {
       const account = await signIn(email, password)
       login(account)
-      navigate('/')
+      navigate(account?.is_platform_admin ? '/admin/owners' : '/')
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {
@@ -40,7 +40,7 @@ export default function SignIn() {
         <p className="auth-subtitle">Welcome back to SiyahaBH</p>
 
         <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
-          {error && <div className="auth-error">{error}</div>}
+          {error ? <div className="auth-error">{error}</div> : null}
 
           <label>
             Email

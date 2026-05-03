@@ -72,3 +72,14 @@ export async function updatePost({ postUuid, description, priceRange, postImage 
   if (error) throw error
   return typeof data === 'string' ? JSON.parse(data) : data
 }
+
+/**
+ * Delete a post (must belong to the client)
+ */
+export async function deletePost({ postUuid, clientUuid }) {
+  const { error } = await supabase.rpc('delete_post', {
+    p_post_uuid: postUuid,
+    p_client_uuid: clientUuid,
+  })
+  if (error) throw error
+}

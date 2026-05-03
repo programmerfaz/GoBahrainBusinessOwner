@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
@@ -26,6 +27,11 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    try {
+      void supabase?.auth.signOut()
+    } catch {
+      /* ignore */
+    }
     setUser(null)
     localStorage.removeItem(STORAGE_KEY)
   }

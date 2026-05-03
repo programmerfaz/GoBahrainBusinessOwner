@@ -1364,7 +1364,7 @@ export default function Profile({ mode }) {
                       <span className="hd-marquee-sep">◆</span>
                       <span className="hd-marquee-type">{typeLabel}</span>
                       <span className="hd-marquee-sep">●</span>
-                      <span className="hd-marquee-name">Go Bahrain</span>
+                      <span className="hd-marquee-name hd-marquee-name--brand">SiyahaBH</span>
                       <span className="hd-marquee-sep">◆</span>
                     </span>
                   ))}
