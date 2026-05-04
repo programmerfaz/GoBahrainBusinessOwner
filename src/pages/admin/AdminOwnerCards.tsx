@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Mail, MapPin, Search, Phone } from 'lucide-react'
-import { fetchAdminClients, type AdminClientRow } from '@/lib/adminApi'
+import { approveAdminAccount, fetchAdminClients, setOwnerProfileDisabledAdmin, type AdminClientRow } from '@/lib/adminApi'
 
 const TYPE_COLORS: Record<string, string> = {
   restaurant: 'linear-gradient(135deg, #92400e 0%, #b45309 60%, #d97706 100%)',
@@ -34,14 +34,60 @@ function initials(name: string) {
     .join('')
 }
 
-function OwnerCard({ c }: { c: AdminClientRow }) {
+function isBusinessOwnerAccountType(t: string | null | undefined) {
+  return String(t ?? 'client').toLowerCase() === 'client'
+}
+
+function OwnerCard({ c, onRefresh }: { c: AdminClientRow; onRefresh: () => void }) {
   const tags = Array.isArray(c.tags) ? c.tags.slice(0, 5) : []
+  const [approveBusy, setApproveBusy] = useState(false)
+  const [approveErr, setApproveErr] = useState('')
+  const [disableBusy, setDisableBusy] = useState(false)
+  const [disableErr, setDisableErr] = useState('')
+  const needsApproval = c.account_approved === false && isBusinessOwnerAccountType(c.owner_account_type)
+  const profileOff = c.owner_profile_disabled === true
+
+  async function handleApprove() {
+    setApproveErr('')
+    setApproveBusy(true)
+    try {
+      await approveAdminAccount(c.account_a_uuid)
+      onRefresh()
+    } catch (e) {
+      setApproveErr(e instanceof Error ? e.message : 'Approve failed')
+    } finally {
+      setApproveBusy(false)
+    }
+  }
+
+  async function handleSetDisabled(nextDisabled: boolean) {
+    setDisableErr('')
+    setDisableBusy(true)
+    try {
+      await setOwnerProfileDisabledAdmin(c.account_a_uuid, nextDisabled)
+      onRefresh()
+    } catch (e) {
+      setDisableErr(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setDisableBusy(false)
+    }
+  }
 
   return (
-    <li className="admin-card">
+    <li className={`admin-card${profileOff ? ' admin-card--profile-off' : ''}`}>
       <div className="admin-card-banner" style={{ background: typeGradient(c.client_type) }}>
         <div className="admin-card-avatar">{initials(c.business_name || 'Business')}</div>
         <span className="admin-card-type-badge">{typeLabel(c.client_type)}</span>
+        {(needsApproval || profileOff) ? (
+          <div className="admin-card-status-pills">
+            {needsApproval ? (
+              <span className="admin-card-pending-pill" title="Owner signed up but is not approved yet">Pending</span>
+            ) : null}
+            {profileOff ? (
+              <span className="admin-card-disabled-pill" title="This account cannot edit or post until re-enabled">Disabled</span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="admin-card-body">
@@ -92,6 +138,38 @@ function OwnerCard({ c }: { c: AdminClientRow }) {
             ))}
           </div>
         ) : null}
+
+        {needsApproval ? (
+          <div className="admin-card-approve-row">
+            <p className="admin-card-approve-hint">This business owner is waiting for approval before they can edit or post.</p>
+            <button
+              type="button"
+              className="admin-approve-account-btn"
+              disabled={approveBusy}
+              onClick={() => void handleApprove()}
+            >
+              {approveBusy ? 'Approving…' : 'Approve account'}
+            </button>
+            {approveErr ? <p className="admin-card-approve-err">{approveErr}</p> : null}
+          </div>
+        ) : null}
+
+        <div className="admin-card-disable-row">
+          <p className="admin-card-disable-hint">
+            {profileOff
+              ? 'This account’s profile is off: they can browse but cannot edit or post.'
+              : 'Turn off this account’s ability to edit profile and posts (they can still sign in).'}
+          </p>
+          <button
+            type="button"
+            className={profileOff ? 'admin-enable-profile-btn' : 'admin-disable-profile-btn'}
+            disabled={disableBusy}
+            onClick={() => void handleSetDisabled(!profileOff)}
+          >
+            {disableBusy ? 'Saving…' : profileOff ? 'Enable profile' : 'Disable profile'}
+          </button>
+          {disableErr ? <p className="admin-card-approve-err">{disableErr}</p> : null}
+        </div>
       </div>
     </li>
   )
@@ -140,12 +218,22 @@ export default function AdminOwnerCards() {
     )
   }, [rows, q])
 
+  const pendingCount = useMemo(
+    () => rows.filter((r) => r.account_approved === false && isBusinessOwnerAccountType(r.owner_account_type)).length,
+    [rows],
+  )
+
+  const disabledProfileCount = useMemo(
+    () => rows.filter((r) => r.owner_profile_disabled === true).length,
+    [rows],
+  )
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
           <h2 className="admin-page-title">Business owners</h2>
-          <p className="admin-page-sub">Every client profile linked to an account in your database.</p>
+          <p className="admin-page-sub">Every client profile linked to an account. Approve new signups so owners can edit and post.</p>
         </div>
         <div className="admin-search-wrap">
           <Search className="admin-search-icon" aria-hidden />
@@ -163,6 +251,16 @@ export default function AdminOwnerCards() {
           <span className="admin-stat-chip">
             <span className="admin-stat-n">{rows.length}</span> total
           </span>
+          {pendingCount > 0 && (
+            <span className="admin-stat-chip admin-stat-chip--pending">
+              <span className="admin-stat-n">{pendingCount}</span> pending approval
+            </span>
+          )}
+          {disabledProfileCount > 0 && (
+            <span className="admin-stat-chip admin-stat-chip--disabled">
+              <span className="admin-stat-n">{disabledProfileCount}</span> profile disabled
+            </span>
+          )}
           {q && (
             <span className="admin-stat-chip">
               <span className="admin-stat-n">{filtered.length}</span> matching
@@ -198,7 +296,7 @@ export default function AdminOwnerCards() {
             )
             : filtered.length === 0
               ? <li className="admin-empty">No results for &ldquo;{q}&rdquo;.</li>
-              : filtered.map((c) => <OwnerCard key={c.client_a_uuid} c={c} />)}
+              : filtered.map((c) => <OwnerCard key={c.client_a_uuid} c={c} onRefresh={() => setTick((t) => t + 1)} />)}
       </ul>
     </div>
   )

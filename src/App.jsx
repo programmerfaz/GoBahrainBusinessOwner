@@ -9,6 +9,7 @@ import ClientPosts from './pages/ClientPosts'
 import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
 import { useAuth } from './context/AuthContext'
+import { isOwnerFeatureEnabled, ownerRestrictionShortLabel } from './lib/ownerFeatures'
 import { getClientsByAccount } from './lib/clients'
 import AdminRouteGuard from './components/AdminRouteGuard'
 import './App.css'
@@ -26,6 +27,7 @@ function App() {
   const location = useLocation()
   const hideChrome = location.pathname.startsWith('/listing/') || location.pathname.startsWith('/admin')
   const { user, logout } = useAuth()
+  const ownerCanEdit = isOwnerFeatureEnabled(user)
   const { theme, toggleTheme } = useGbTheme()
   const [isEventOrganizer, setIsEventOrganizer] = useState(false)
   const reducedMotion = useReducedMotion()
@@ -79,9 +81,35 @@ function App() {
             ) : (
               <>
                 <MotionNavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Home</MotionNavLink>
-                <MotionNavLink to="/edit" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Edit</MotionNavLink>
-                <MotionNavLink to="/posts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Posts</MotionNavLink>
-                {isEventOrganizer && <MotionNavLink to="/events" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Events</MotionNavLink>}
+                <MotionNavLink
+                  to="/edit"
+                  title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                  className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                  whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                  onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                >
+                  Edit
+                </MotionNavLink>
+                <MotionNavLink
+                  to="/posts"
+                  title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                  className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                  whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                  onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                >
+                  Posts
+                </MotionNavLink>
+                {isEventOrganizer && (
+                  <MotionNavLink
+                    to="/events"
+                    title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                    className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                    whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                    onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                  >
+                    Events
+                  </MotionNavLink>
+                )}
                 <motion.button type="button" className="btn-link" onClick={logout} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign Out</motion.button>
               </>
             )
@@ -133,6 +161,8 @@ function App() {
               user ? (
                 user.is_platform_admin ? (
                   <Navigate to="/admin/owners" replace />
+                ) : !isOwnerFeatureEnabled(user) ? (
+                  <Navigate to="/profile" replace />
                 ) : (
                   <Profile mode="edit" />
                 )

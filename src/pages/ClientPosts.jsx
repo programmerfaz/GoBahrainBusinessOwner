@@ -3,12 +3,15 @@ import { useParams, Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { FadeInUp, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
 import { useAuth } from '../context/AuthContext'
+import { isOwnerFeatureEnabled, ownerBusinessRestriction, ownerRestrictionShortLabel } from '../lib/ownerFeatures'
 import { getClientFull } from '../lib/clients'
 import { getPostsByClient, createPost, updatePost, uploadPostImage } from '../lib/posts'
 
 export default function ClientPosts() {
   const { clientId } = useParams()
   const { user } = useAuth()
+  const canEditOwner = isOwnerFeatureEnabled(user)
+  const clientPostsRestriction = ownerBusinessRestriction(user)
   const reducedMotion = useReducedMotion()
   const [client, setClient] = useState(null)
   const [posts, setPosts] = useState([])
@@ -36,6 +39,10 @@ export default function ClientPosts() {
 
   async function handleCreatePost(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError(clientPostsRestriction === 'profile_disabled' ? 'Your profile has been disabled by an administrator.' : 'Your account is pending admin approval.')
+      return
+    }
     if (!createForm.description?.trim()) {
       setError('Description is required')
       return
@@ -68,6 +75,10 @@ export default function ClientPosts() {
 
   async function handleUpdatePost(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError(clientPostsRestriction === 'profile_disabled' ? 'Your profile has been disabled by an administrator.' : 'Your account is pending admin approval.')
+      return
+    }
     if (!editingPost) return
     if (!editForm.description?.trim()) {
       setError('Description is required')
@@ -100,6 +111,10 @@ export default function ClientPosts() {
   }
 
   function startEdit(p) {
+    if (!canEditOwner) {
+      setError(clientPostsRestriction === 'profile_disabled' ? 'Your profile has been disabled by an administrator.' : 'Your account is pending admin approval.')
+      return
+    }
     setEditingPost(p)
     setEditForm({
       description: p.description || p.content || '',
@@ -120,15 +135,25 @@ export default function ClientPosts() {
         <p className="subtitle">Manage posts for this business.</p>
       </div>
 
-      <div className="posts-toolbar">
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => { setShowCreate(true); setError(''); setCreateForm({ description: '', priceRange: '' }); setImageFile(null); }}
-        >
-          Create a post
-        </button>
-      </div>
+      {canEditOwner ? (
+        <div className="posts-toolbar">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => { setShowCreate(true); setError(''); setCreateForm({ description: '', priceRange: '' }); setImageFile(null); }}
+          >
+            Create a post
+          </button>
+        </div>
+      ) : clientPostsRestriction === 'profile_disabled' ? (
+        <div className="auth-error" style={{ marginBottom: 16, borderColor: 'rgba(248, 113, 113, 0.35)', background: 'rgba(248, 113, 113, 0.08)' }}>
+          Your profile has been disabled by an administrator. Post creation stays off until an admin re-enables your profile.
+        </div>
+      ) : (
+        <div className="auth-error" style={{ marginBottom: 16, borderColor: 'rgba(251, 191, 36, 0.4)', background: 'rgba(251, 191, 36, 0.08)' }}>
+          Your account is pending admin approval. Post creation is disabled until an admin approves your business.
+        </div>
+      )}
 
       {error && <div className="auth-error">{error}</div>}
 
@@ -266,7 +291,8 @@ export default function ClientPosts() {
                     type="button"
                     className="post-card-update-btn"
                     onClick={() => startEdit(p)}
-                    title="Update"
+                    title={!canEditOwner ? ownerRestrictionShortLabel(user) : 'Update'}
+                    disabled={!canEditOwner}
                   >
                     Update
                   </button>

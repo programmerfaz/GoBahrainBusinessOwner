@@ -21,7 +21,7 @@ Order matters: create Auth users FIRST, then run the link SQL.
 
 2) Authentication → Users → "Add user" (this creates the login; SQL cannot do this)
    - Do NOT rely on "Invite user" alone — invited users have no password until they finish the link flow.
-   - Email: Admin_fazil@gmail.com   (and/or Admin_esmail@gmail.com)
+   - Email: Admin_fazil@gmail.com   (and/or admin_esmail@gmail.com)
    - Password: choose one and remember it for the app sign-in
    - Turn ON "Auto Confirm User" (or confirm via email link)
 

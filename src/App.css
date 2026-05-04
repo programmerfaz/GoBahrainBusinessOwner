@@ -171,6 +171,12 @@
   text-shadow: 0 0 14px rgba(234, 179, 8, 0.4);
 }
 
+.nav .nav-link--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
 .nav .nav-link.active::after {
   opacity: 1;
   transform: scaleX(1);

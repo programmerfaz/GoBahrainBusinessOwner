@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Creates two Supabase Auth users (password via Auth) and upserts public.admins.
+ * Creates Supabase Auth users (password via Auth) and upserts public.admins.
+ * Default list: Admin_fazil@gmail.com, admin_esmail@gmail.com (password 121212).
  * Requires migration 017_admins_table.sql applied first.
  *
  * Env: SUPABASE_URL (or VITE_SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY
@@ -34,7 +35,8 @@ const supabase = createClient(url, serviceKey, {
 
 const admins = [
   { email: 'Admin_fazil@gmail.com', display_name: 'Admin Fazil', role: 'super_admin' },
-  { email: 'Admin_esmail@gmail.com', display_name: 'Admin Esmail', role: 'super_admin' },
+  /** Same admin as before if you used Admin_esmail@gmail.com — Auth matches case-insensitively. */
+  { email: 'admin_esmail@gmail.com', display_name: 'Admin Esmail', role: 'super_admin' },
 ]
 
 const password = '121212'

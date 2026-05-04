@@ -74,13 +74,6 @@ export default function SignIn() {
         <p className="auth-footer">
           Don&apos;t have an account? <Link to="/signup">Sign up</Link>
         </p>
-
-        <div className="auth-note" role="note" aria-label="Account request note">
-          <p className="auth-note-title">Need account access?</p>
-          <p className="auth-note-text">
-            Email <a href="mailto:gobahraintourism@gmail.com">gobahraintourism@gmail.com</a> with your business name and a short description of who you are to receive your credentials.
-          </p>
-        </div>
       </motion.div>
     </div>
   )

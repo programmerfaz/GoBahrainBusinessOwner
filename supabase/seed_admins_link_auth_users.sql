@@ -13,7 +13,7 @@
 -- Prerequisite B — users exist in Supabase Auth (Dashboard only), SAME project
 -- as your app (check VITE_SUPABASE_URL / default in src/config/api.js):
 --   Authentication → Users → "Add user"
---   - Email examples: Admin_fazil@gmail.com , Admin_esmail@gmail.com
+--   - Email examples: Admin_fazil@gmail.com , admin_esmail@gmail.com
 --   - Set password, enable "Auto Confirm User" (or complete email confirmation)
 --
 -- Then run THIS file in SQL Editor. It is idempotent (ON CONFLICT DO NOTHING).

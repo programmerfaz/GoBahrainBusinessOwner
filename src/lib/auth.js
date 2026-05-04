@@ -10,7 +10,10 @@ function friendlyAuthError(err, fallback = 'Something went wrong. Please try aga
     msg.includes('invalid login') ||
     msg.includes('invalid credentials')
   ) {
-    return 'The email or password you entered is incorrect.'
+    return (
+      'Wrong email/password, or this user is not in this Supabase project. ' +
+      'Open the Dashboard for the project in your VITE_SUPABASE_URL → Authentication → Users: create the user or reset password, and ensure email is confirmed.'
+    )
   }
   if (code === 'email_not_confirmed' || msg.includes('email not confirmed')) {
     return 'Please confirm your email before signing in. Check your inbox for the confirmation link.'
@@ -36,12 +39,15 @@ function friendlyAuthError(err, fallback = 'Something went wrong. Please try aga
 }
 
 /** Map account row to app shape: ensure .name for display (from user_name) */
-function accountForApp(account) {
+export function accountForApp(account) {
   if (!account) return null
   return {
     ...account,
     name: account.user_name ?? account.name ?? '',
     is_platform_admin: account.is_platform_admin === true,
+    // DB columns; omitted on legacy cached sessions → ownerFeatures uses safe defaults
+    account_approved: account.account_approved,
+    owner_profile_disabled: account.owner_profile_disabled,
   }
 }
 
@@ -138,16 +144,36 @@ export async function signIn(email, password) {
   }
   if (!authData?.user?.id) throw new Error('The email or password you entered is incorrect.')
 
-  const { data: adminRow } = await supabase.from('admins').select('admin_id, display_name, role').eq('admin_id', authData.user.id).maybeSingle()
+  const u = authData.user
+  const uid = u.id
 
-  if (adminRow?.admin_id) {
-    const u = authData.user
+  // Prefer SECURITY DEFINER RPC so admin login works even if direct SELECT on public.admins is misconfigured.
+  let isAdminRpc = false
+  const rpcAdmin = await supabase.rpc('is_platform_admin')
+  if (rpcAdmin.error) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[auth] is_platform_admin RPC:', rpcAdmin.error.message ?? rpcAdmin.error)
+    }
+  } else if (rpcAdmin.data === true) {
+    isAdminRpc = true
+  }
+
+  const { data: adminRow, error: adminSelectErr } = await supabase
+    .from('admins')
+    .select('admin_id, display_name, role')
+    .eq('admin_id', uid)
+    .maybeSingle()
+  if (adminSelectErr && typeof console !== 'undefined' && console.warn) {
+    console.warn('[auth] admins select:', adminSelectErr.message ?? adminSelectErr)
+  }
+
+  if (isAdminRpc || adminRow?.admin_id) {
     return accountForApp({
       is_platform_admin: true,
       account_uuid: null,
       email: u.email ?? emailForAuth,
-      user_name: adminRow.display_name || u.user_metadata?.full_name || u.user_metadata?.name || 'Admin',
-      auth_id: u.id,
+      user_name: adminRow?.display_name || u.user_metadata?.full_name || u.user_metadata?.name || 'Admin',
+      auth_id: uid,
       phone: '',
     })
   }
@@ -162,5 +188,8 @@ export async function signIn(email, password) {
   accountRow = (await supabase.from('account').select('*').maybeSingle()).data
   if (accountRow) return accountForApp(accountRow)
 
-  throw new Error('Account not found. Please sign up first.')
+  throw new Error(
+    'No business profile for this email, and it is not linked as a platform admin. Use Sign up for a business account. ' +
+      'For admin access: in Supabase create the user under Authentication → Users, then run grant SQL from supabase/grant_admin_access_one_email.sql (edit the email).',
+  )
 }
