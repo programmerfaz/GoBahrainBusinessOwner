@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import './ProfileDashboard.css'
 import { QRCodeSVG } from 'qrcode.react'
@@ -14,6 +14,7 @@ import MapPicker from '../components/MapPicker'
 import OwnerLocationPicker from '../components/OwnerLocationPicker'
 import { FadeInUp, FadeInLeft, FadeInRight, ScaleIn, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
 import { SkeletonPage, SkeletonDetailsGrid } from '../components/SkeletonLoaders'
+import { isOwnerFeatureEnabled, ownerBusinessRestriction, ownerRestrictionShortLabel } from '../lib/ownerFeatures'
 import Business3DModel from '../components/Business3DModel'
 
 const CLIENT_FIELDS = [
@@ -502,9 +503,18 @@ function SavingOverlayWithFacts() {
 export default function Profile({ mode }) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const canEditOwner = isOwnerFeatureEnabled(user)
+  const ownerRestriction = ownerBusinessRestriction(user)
   const reducedMotion = useReducedMotion()
   const isDashboard = mode === 'dashboard'
   const isEditPage = mode === 'edit'
+
+  useEffect(() => {
+    if (location.state?.newSignupPendingApproval) {
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate])
   const [clients, setClients] = useState([])
   const [displayClient, setDisplayClient] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -915,6 +925,11 @@ export default function Profile({ mode }) {
   async function handleEventImageChange(e) {
     const file = e.target.files?.[0]
     if (!file || !user?.account_uuid) return
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot change images yet.')
+      e.target.value = ''
+      return
+    }
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file (e.g. JPG, PNG).')
       return
@@ -932,6 +947,11 @@ export default function Profile({ mode }) {
   async function handleClientImageChange(e) {
     const file = e.target.files?.[0]
     if (!file || !user?.account_uuid) return
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot change images yet.')
+      e.target.value = ''
+      return
+    }
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file (e.g. JPG, PNG).')
       return
@@ -951,6 +971,11 @@ export default function Profile({ mode }) {
     const c = displayClient || clients[0]
     const clientUuid = c?.client_a_uuid
     if (!file || !clientUuid) return
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot change images yet.')
+      e.target.value = ''
+      return
+    }
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file (e.g. JPG, PNG).')
       return
@@ -984,6 +1009,10 @@ export default function Profile({ mode }) {
   }
 
   async function handleStartEdit(clientUuid) {
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot edit your profile yet.')
+      return
+    }
     setLoadingClient(clientUuid)
     setError('')
     try {
@@ -1046,6 +1075,10 @@ export default function Profile({ mode }) {
 
   async function handleSubmitCreate(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot create a profile yet.')
+      return
+    }
     if (!user?.account_uuid || !form.client_type_choice) {
       setError('Please select a client type.')
       return
@@ -1119,6 +1152,10 @@ export default function Profile({ mode }) {
 
   async function handleSubmitUpdate(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot update your profile yet.')
+      return
+    }
     if (!editingClientId || !form.client_type_choice) {
       setError('Please select a client type.')
       return
@@ -1208,6 +1245,16 @@ export default function Profile({ mode }) {
 
       {/* ── Toasts ── */}
       {error && <div className="pf-toast pf-toast-error">{error}</div>}
+      {ownerRestriction === 'pending_approval' && user?.account_uuid && (
+        <div className="pf-toast pf-pending-notice" role="status">
+          Your business account is waiting for admin approval. You can browse the site; editing your profile and creating posts will be available once approved.
+        </div>
+      )}
+      {ownerRestriction === 'profile_disabled' && user?.account_uuid && (
+        <div className="pf-toast pf-profile-disabled-notice" role="status">
+          Your profile has been disabled by an administrator. You can still browse the site; editing and posts stay off until an admin turns your profile back on.
+        </div>
+      )}
       {(success.supabase || success.pinecone) && (
         <div className="pf-toast pf-toast-success">
           Profile saved successfully!
@@ -1226,7 +1273,11 @@ export default function Profile({ mode }) {
         <div className="pf-empty-dashboard">
           <h2 className="pf-form-title">No profile yet</h2>
           <p className="pf-form-sub">Create your business profile to get started.</p>
-          <Link to="/edit" className="pf-btn pf-btn-primary pf-btn-lg">Create profile</Link>
+          {canEditOwner ? (
+            <Link to="/edit" className="pf-btn pf-btn-primary pf-btn-lg">Create profile</Link>
+          ) : (
+            <p className="pf-form-sub" style={{ marginTop: 12 }}>Profile setup will be available after an admin approves your account.</p>
+          )}
         </div>
       )}
 
@@ -1364,7 +1415,7 @@ export default function Profile({ mode }) {
                       <span className="hd-marquee-sep">◆</span>
                       <span className="hd-marquee-type">{typeLabel}</span>
                       <span className="hd-marquee-sep">●</span>
-                      <span className="hd-marquee-name">Go Bahrain</span>
+                      <span className="hd-marquee-name hd-marquee-name--brand">SiyahaBH</span>
                       <span className="hd-marquee-sep">◆</span>
                     </span>
                   ))}
@@ -1454,7 +1505,11 @@ export default function Profile({ mode }) {
                       viewport={{ once: true }}
                       transition={{ duration: 0.4 }}
                     >
-                      <Link to="/edit" className="hd-action-btn hd-action-btn-primary">Edit Profile</Link>
+                      {canEditOwner ? (
+                        <Link to="/edit" className="hd-action-btn hd-action-btn-primary">Edit Profile</Link>
+                      ) : (
+                        <span className="hd-action-btn hd-action-btn-primary" style={{ opacity: 0.55, cursor: 'not-allowed' }} title={ownerRestrictionShortLabel(user)}>Edit Profile</span>
+                      )}
                     </motion.div>
                   </div>
                   <FadeInUp delay={0.1}>
@@ -1506,7 +1561,11 @@ export default function Profile({ mode }) {
                     whileInView={{ opacity: 1, x: 0 }}
                     viewport={{ once: true }}
                   >
-                    <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
+                    {canEditOwner ? (
+                      <Link to="/posts" className="hd-action-btn hd-action-btn-secondary">+ Create Post</Link>
+                    ) : (
+                      <span className="hd-action-btn hd-action-btn-secondary" style={{ opacity: 0.55, cursor: 'not-allowed' }} title={ownerRestrictionShortLabel(user)}>+ Create Post</span>
+                    )}
                   </motion.div>
                 </div>
                 <FadeInUp delay={0.1}>
@@ -1755,8 +1814,20 @@ export default function Profile({ mode }) {
                   </h1>
                   <p className="vp-type">{typeLabel}</p>
                   <div className="vp-hero-actions">
-                    <button type="button" className="vp-btn vp-btn-gold" onClick={() => handleStartEdit(c.client_a_uuid)} disabled={loadingClient === c.client_a_uuid}>{loadingClient === c.client_a_uuid ? 'Loading…' : 'Edit Profile'}</button>
-                    <Link to="/posts" className="vp-btn vp-btn-outline">Create Post</Link>
+                    <button
+                      type="button"
+                      className="vp-btn vp-btn-gold"
+                      onClick={() => handleStartEdit(c.client_a_uuid)}
+                      disabled={!canEditOwner || loadingClient === c.client_a_uuid}
+                      title={!canEditOwner ? ownerRestrictionShortLabel(user) : undefined}
+                    >
+                      {loadingClient === c.client_a_uuid ? 'Loading…' : 'Edit Profile'}
+                    </button>
+                    {canEditOwner ? (
+                      <Link to="/posts" className="vp-btn vp-btn-outline">Create Post</Link>
+                    ) : (
+                      <span className="vp-btn vp-btn-outline" style={{ opacity: 0.55, cursor: 'not-allowed' }} title={ownerRestrictionShortLabel(user)}>Create Post</span>
+                    )}
                     <button type="button" className="vp-btn vp-btn-outline" onClick={() => qrValue && setExpandedQrClient(c)} disabled={!qrValue}>Share</button>
                   </div>
                 </div>

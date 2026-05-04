@@ -4,8 +4,9 @@ import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { FadeInUp, StaggerContainer, StaggerItem } from '../components/ScrollAnimations'
 import { useAuth } from '../context/AuthContext'
+import { isOwnerFeatureEnabled, ownerBusinessRestriction, ownerRestrictionShortLabel } from '../lib/ownerFeatures'
 import { getClientsByAccount, getClientFull } from '../lib/clients'
-import { getPostsByClient, createPost, updatePost, uploadPostImage } from '../lib/posts'
+import { getPostsByClient, createPost, updatePost, deletePost, uploadPostImage } from '../lib/posts'
 import { uploadEventImage } from '../lib/profileImages'
 import { createEventForClient, updateEventForClient } from '../lib/events'
 import HomeContentNav from '../components/HomeContentNav'
@@ -71,6 +72,8 @@ const emptyEventForm = () => ({
 
 export default function Posts({ initialSection = 'posts', showTabs = true }) {
   const { user } = useAuth()
+  const canEditOwner = isOwnerFeatureEnabled(user)
+  const postsOwnerRestriction = ownerBusinessRestriction(user)
   const reducedMotion = useReducedMotion()
   const [clients, setClients] = useState([])
   const [posts, setPosts] = useState([])
@@ -87,6 +90,7 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
   const [saving, setSaving] = useState(false)
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [updatingEvent, setUpdatingEvent] = useState(false)
+  const [deletingPostUuid, setDeletingPostUuid] = useState(null)
   const [createForm, setCreateForm] = useState(emptyPostComposeForm)
   const [editForm, setEditForm] = useState(emptyPostComposeForm)
   const [eventForm, setEventForm] = useState(emptyEventForm())
@@ -182,6 +186,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
 
   async function handleCreatePost(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot create posts yet.')
+      return
+    }
     if (!clientId || !createForm.description?.trim()) {
       setError('Description is required')
       return
@@ -214,6 +222,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
 
   async function handleUpdatePost(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
     if (!clientId || !editingPost) return
     if (!editForm.description?.trim()) {
       setError('Description is required')
@@ -246,6 +258,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
   }
 
   function startEdit(p) {
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
     setEditingPost(p)
     setEditForm({
       description: p.description || p.content || '',
@@ -255,8 +271,38 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
     setError('')
   }
 
+  async function handleDeletePost(p) {
+    if (!clientId) return
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
+    if (!window.confirm('Delete this post? This cannot be undone.')) return
+    setDeletingPostUuid(p.post_uuid)
+    setError('')
+    try {
+      await deletePost({ postUuid: p.post_uuid, clientUuid: clientId })
+      if (editingPost?.post_uuid === p.post_uuid) {
+        setEditingPost(null)
+        setEditForm(emptyPostComposeForm())
+        setEditImageFile(null)
+        if (editFileInputRef.current) editFileInputRef.current.value = ''
+      }
+      const updated = await getPostsByClient(clientId)
+      setPosts(updated)
+    } catch (err) {
+      setError(err.message || 'Failed to delete post')
+    } finally {
+      setDeletingPostUuid(null)
+    }
+  }
+
   async function handleCreateEvent(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
     if (!clientId || !isEventOrganizer) {
       setError('Create event is available only for event organizer profile')
       return
@@ -290,6 +336,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
   }
 
   function startEditEvent(ev) {
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
     setEditingEvent(ev)
     setEditEventImageFile(null)
     setEventForm({
@@ -311,6 +361,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
 
   async function handleUpdateEvent(e) {
     e.preventDefault()
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval.')
+      return
+    }
     if (!clientId || !editingEvent?.event_uuid) return
     if (!eventForm.event_name?.trim()) {
       setError('Event name is required')
@@ -359,6 +413,10 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
 
   function openCreate() {
     setError('')
+    if (!canEditOwner) {
+      setError('Your account is pending admin approval. You cannot create posts or events yet.')
+      return
+    }
     if (activeSection === 'posts') {
       setCreateForm(emptyPostComposeForm())
       setImageFile(null)
@@ -386,7 +444,7 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
     )
   }
 
-  const showFab = activeSection === 'posts' || (isEventOrganizer && activeSection === 'events')
+  const showFab = canEditOwner && (activeSection === 'posts' || (isEventOrganizer && activeSection === 'events'))
 
   return (
     <div className="page dashboard-v2 home-posts">
@@ -406,6 +464,16 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
       )}
 
       {error && <div className="auth-error">{error}</div>}
+      {postsOwnerRestriction === 'pending_approval' && user?.account_uuid && (
+        <div className="auth-error" style={{ borderColor: 'rgba(251, 191, 36, 0.4)', background: 'rgba(251, 191, 36, 0.08)' }}>
+          Your account is pending admin approval. You can view this page; creating or editing posts and events is disabled until an admin approves your business.
+        </div>
+      )}
+      {postsOwnerRestriction === 'profile_disabled' && user?.account_uuid && (
+        <div className="auth-error" style={{ borderColor: 'rgba(248, 113, 113, 0.35)', background: 'rgba(248, 113, 113, 0.08)' }}>
+          Your profile has been disabled by an administrator. You can view this page; creating or editing posts and events stays off until an admin re-enables your profile.
+        </div>
+      )}
 
       {(loading || postsLoading) && clients.length < 1 && <p className="clients-loading">Loading...</p>}
       {activeSection === 'posts' && clientId && postsLoading && <p className="clients-loading">Loading posts...</p>}
@@ -449,14 +517,26 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                     {created && <span className="post-card-date">{created}</span>}
                     {p.price_range && <span className="post-card-price">{p.price_range}</span>}
                   </div>
-                  <button
-                    type="button"
-                    className="post-card-update-btn"
-                    onClick={() => startEdit(p)}
-                    title="Update"
-                  >
-                    Update
-                  </button>
+                  <div className="post-card-actions">
+                    <button
+                      type="button"
+                      className="post-card-delete-btn"
+                      onClick={() => handleDeletePost(p)}
+                      disabled={!canEditOwner || deletingPostUuid === p.post_uuid}
+                      title={!canEditOwner ? ownerRestrictionShortLabel(user) : 'Delete post'}
+                    >
+                      {deletingPostUuid === p.post_uuid ? '…' : 'Delete'}
+                    </button>
+                    <button
+                      type="button"
+                      className="post-card-update-btn"
+                      onClick={() => startEdit(p)}
+                      title={!canEditOwner ? ownerRestrictionShortLabel(user) : 'Update'}
+                      disabled={!canEditOwner || deletingPostUuid === p.post_uuid}
+                    >
+                      Update
+                    </button>
+                  </div>
                 </div>
                 <div className="post-card-bottom">
                   {(p.description || p.content) && (
@@ -495,9 +575,17 @@ export default function Posts({ initialSection = 'posts', showTabs = true }) {
                     {when && <span className="post-card-date">{when}</span>}
                     {ev.status && <span className="post-card-price">{ev.status}</span>}
                   </div>
-                  <button type="button" className="post-card-update-btn" onClick={() => startEditEvent(ev)} title="Update">
-                    Update
-                  </button>
+                  <div className="post-card-actions">
+                    <button
+                      type="button"
+                      className="post-card-update-btn"
+                      onClick={() => startEditEvent(ev)}
+                      title={!canEditOwner ? ownerRestrictionShortLabel(user) : 'Update'}
+                      disabled={!canEditOwner}
+                    >
+                      Update
+                    </button>
+                  </div>
                 </div>
                 <div className="post-card-bottom">
                   <p className="post-card-content">

@@ -20,7 +20,7 @@ export default function SignIn() {
     try {
       const account = await signIn(email, password)
       login(account)
-      navigate('/')
+      navigate(account?.is_platform_admin ? '/admin/owners' : '/')
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {
@@ -40,7 +40,7 @@ export default function SignIn() {
         <p className="auth-subtitle">Welcome back to SiyahaBH</p>
 
         <form onSubmit={handleSubmit} className="auth-form" autoComplete="off">
-          {error && <div className="auth-error">{error}</div>}
+          {error ? <div className="auth-error">{error}</div> : null}
 
           <label>
             Email
@@ -74,13 +74,6 @@ export default function SignIn() {
         <p className="auth-footer">
           Don&apos;t have an account? <Link to="/signup">Sign up</Link>
         </p>
-
-        <div className="auth-note" role="note" aria-label="Account request note">
-          <p className="auth-note-title">Need account access?</p>
-          <p className="auth-note-text">
-            Email <a href="mailto:gobahraintourism@gmail.com">gobahraintourism@gmail.com</a> with your business name and a short description of who you are to receive your credentials.
-          </p>
-        </div>
       </motion.div>
     </div>
   )

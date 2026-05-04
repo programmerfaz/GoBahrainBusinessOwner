@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "server:dev": "node --watch server/index.js",
-    "backfill-ai-summaries": "node scripts/backfill-ai-summaries.mjs"
+    "backfill-ai-summaries": "node scripts/backfill-ai-summaries.mjs",
+    "seed:admins": "node scripts/seed-admin-users.mjs",
+    "admin:setup-help": "node scripts/print-admin-setup-no-service-role.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -22,8 +24,10 @@
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-is": "^19.2.5",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^6.28.0",
+    "recharts": "^3.8.1",
     "three": "^0.184.0"
   },
   "devDependencies": {

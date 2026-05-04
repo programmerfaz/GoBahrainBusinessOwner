@@ -9,18 +9,25 @@ import ClientPosts from './pages/ClientPosts'
 import SignIn from './pages/SignIn'
 import SignUp from './pages/SignUp'
 import { useAuth } from './context/AuthContext'
+import { isOwnerFeatureEnabled, ownerRestrictionShortLabel } from './lib/ownerFeatures'
 import { getClientsByAccount } from './lib/clients'
+import AdminRouteGuard from './components/AdminRouteGuard'
 import './App.css'
 import './pages/index.css'
 import './components/SkeletonLoaders.css'
 
 const MotionNavLink = motion(NavLink)
 const BusinessListingPage = lazy(() => import('./pages/BusinessListingPage'))
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
+const AdminOwnerCards = lazy(() => import('./pages/admin/AdminOwnerCards'))
+const AdminUserCards = lazy(() => import('./pages/admin/AdminUserCards'))
+const AdminSiteSettings = lazy(() => import('./pages/admin/AdminSiteSettings'))
 
 function App() {
   const location = useLocation()
-  const hideChrome = location.pathname.startsWith('/listing/')
+  const hideChrome = location.pathname.startsWith('/listing/') || location.pathname.startsWith('/admin')
   const { user, logout } = useAuth()
+  const ownerCanEdit = isOwnerFeatureEnabled(user)
   const { theme, toggleTheme } = useGbTheme()
   const [isEventOrganizer, setIsEventOrganizer] = useState(false)
   const reducedMotion = useReducedMotion()
@@ -65,13 +72,47 @@ function App() {
             {theme === 'dark' ? '☀' : '🌙'}
           </motion.button>
           {user ? (
-            <>
-              <MotionNavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Home</MotionNavLink>
-              <MotionNavLink to="/edit" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Edit</MotionNavLink>
-              <MotionNavLink to="/posts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Posts</MotionNavLink>
-              {isEventOrganizer && <MotionNavLink to="/events" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Events</MotionNavLink>}
-              <motion.button type="button" className="btn-link" onClick={logout} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign Out</motion.button>
-            </>
+            user.is_platform_admin ? (
+              <>
+                <MotionNavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Home</MotionNavLink>
+                <MotionNavLink to="/admin/owners" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Admin</MotionNavLink>
+                <motion.button type="button" className="btn-link" onClick={logout} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign Out</motion.button>
+              </>
+            ) : (
+              <>
+                <MotionNavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Home</MotionNavLink>
+                <MotionNavLink
+                  to="/edit"
+                  title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                  className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                  whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                  onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                >
+                  Edit
+                </MotionNavLink>
+                <MotionNavLink
+                  to="/posts"
+                  title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                  className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                  whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                  onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                >
+                  Posts
+                </MotionNavLink>
+                {isEventOrganizer && (
+                  <MotionNavLink
+                    to="/events"
+                    title={ownerCanEdit ? undefined : ownerRestrictionShortLabel(user)}
+                    className={({ isActive }) => `${isActive ? 'nav-link active' : 'nav-link'}${ownerCanEdit ? '' : ' nav-link--disabled'}`}
+                    whileTap={ownerCanEdit ? (reducedMotion ? undefined : { scale: 0.97 }) : undefined}
+                    onClick={(e) => { if (!ownerCanEdit) e.preventDefault() }}
+                  >
+                    Events
+                  </MotionNavLink>
+                )}
+                <motion.button type="button" className="btn-link" onClick={logout} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign Out</motion.button>
+              </>
+            )
           ) : (
             <>
               <MotionNavLink to="/signin" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')} whileTap={reducedMotion ? undefined : { scale: 0.97 }}>Sign in</MotionNavLink>
@@ -92,13 +133,124 @@ function App() {
             }
           />
           <Route path="/" element={<Home />} />
-          <Route path="/signin" element={user ? <Navigate to="/" replace /> : <SignIn />} />
-          <Route path="/signup" element={user ? <Navigate to="/" replace /> : <SignUp />} />
-          <Route path="/profile" element={user ? <Profile mode="dashboard" /> : <Navigate to="/signin" replace />} />
-          <Route path="/edit" element={user ? <Profile mode="edit" /> : <Navigate to="/signin" replace />} />
-          <Route path="/profile/:clientId/posts" element={user ? <ClientPosts /> : <Navigate to="/" replace />} />
-          <Route path="/posts" element={user ? <Posts initialSection="posts" showTabs={false} /> : <Navigate to="/" replace />} />
-          <Route path="/events" element={user ? <Posts initialSection="events" showTabs={false} /> : <Navigate to="/" replace />} />
+          <Route
+            path="/signin"
+            element={user ? <Navigate to={user.is_platform_admin ? '/admin/owners' : '/'} replace /> : <SignIn />}
+          />
+          <Route
+            path="/signup"
+            element={user ? <Navigate to={user.is_platform_admin ? '/admin/owners' : '/'} replace /> : <SignUp />}
+          />
+          <Route
+            path="/profile"
+            element={
+              user ? (
+                user.is_platform_admin ? (
+                  <Navigate to="/admin/owners" replace />
+                ) : (
+                  <Profile mode="dashboard" />
+                )
+              ) : (
+                <Navigate to="/signin" replace />
+              )
+            }
+          />
+          <Route
+            path="/edit"
+            element={
+              user ? (
+                user.is_platform_admin ? (
+                  <Navigate to="/admin/owners" replace />
+                ) : !isOwnerFeatureEnabled(user) ? (
+                  <Navigate to="/profile" replace />
+                ) : (
+                  <Profile mode="edit" />
+                )
+              ) : (
+                <Navigate to="/signin" replace />
+              )
+            }
+          />
+          <Route
+            path="/profile/:clientId/posts"
+            element={
+              user ? (
+                user.is_platform_admin ? (
+                  <Navigate to="/admin/owners" replace />
+                ) : (
+                  <ClientPosts />
+                )
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/posts"
+            element={
+              user ? (
+                user.is_platform_admin ? (
+                  <Navigate to="/admin/owners" replace />
+                ) : (
+                  <Posts initialSection="posts" showTabs={false} />
+                )
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/events"
+            element={
+              user ? (
+                user.is_platform_admin ? (
+                  <Navigate to="/admin/owners" replace />
+                ) : (
+                  <Posts initialSection="events" showTabs={false} />
+                )
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRouteGuard>
+                <Suspense fallback={null}>
+                  <AdminLayout />
+                </Suspense>
+              </AdminRouteGuard>
+            }
+          >
+            <Route index element={<Navigate to="owners" replace />} />
+            <Route
+              path="owners"
+              element={
+                <Suspense fallback={null}>
+                  <AdminOwnerCards />
+                </Suspense>
+              }
+            />
+            <Route
+              path="users"
+              element={
+                <Suspense fallback={null}>
+                  <AdminUserCards />
+                </Suspense>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <Suspense fallback={null}>
+                  <AdminSiteSettings />
+                </Suspense>
+              }
+            />
+            <Route path="businesses" element={<Navigate to="/admin/owners" replace />} />
+            <Route path="analytics" element={<Navigate to="/admin/owners" replace />} />
+          </Route>
         </Routes>
       </main>
       {!hideChrome && (

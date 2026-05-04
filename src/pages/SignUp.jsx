@@ -29,7 +29,7 @@ export default function SignUp() {
     try {
       const account = await signUp(form)
       login(account)
-      navigate('/')
+      navigate('/', { replace: true, state: { newSignupPendingApproval: true } })
     } catch (err) {
       setError(err.message || 'Sign up failed')
     } finally {

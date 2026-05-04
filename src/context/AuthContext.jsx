@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
+import { accountForApp } from '../lib/auth'
 
 const AuthContext = createContext(null)
 
@@ -20,12 +22,51 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }, [])
 
+  useEffect(() => {
+    if (!supabase || loading || !user?.account_uuid || user.is_platform_admin) return
+    const accountUuid = user.account_uuid
+
+    async function sync() {
+      const { data, error } = await supabase
+        .from('account')
+        .select('*')
+        .eq('account_uuid', accountUuid)
+        .maybeSingle()
+      if (error || !data) return
+      const next = accountForApp(data)
+      setUser((prev) => {
+        if (!prev?.account_uuid || prev.account_uuid !== accountUuid) return prev
+        const merged = { ...prev, ...next, name: next.name || prev.name }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+        return merged
+      })
+    }
+
+    void sync()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void sync()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      void sync()
+    })
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      subscription.unsubscribe()
+    }
+  }, [loading, user?.account_uuid, user?.is_platform_admin])
+
   function login(account) {
     setUser(account)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(account))
   }
 
   function logout() {
+    try {
+      void supabase?.auth.signOut()
+    } catch {
+      /* ignore */
+    }
     setUser(null)
     localStorage.removeItem(STORAGE_KEY)
   }
