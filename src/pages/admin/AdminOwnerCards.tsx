@@ -194,6 +194,7 @@ export default function AdminOwnerCards() {
   const [error, setError] = useState('')
   const [q, setQ] = useState('')
   const [tick, setTick] = useState(0)
+  const [filter, setFilter] = useState<'all' | 'pending' | 'disabled'>('all')
 
   useEffect(() => {
     let cancelled = false
@@ -208,15 +209,22 @@ export default function AdminOwnerCards() {
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return rows
-    return rows.filter(
+    let base = rows
+    if (filter === 'pending') {
+      base = base.filter((r) => r.account_approved === false && isBusinessOwnerAccountType(r.owner_account_type))
+    }
+    if (filter === 'disabled') {
+      base = base.filter((r) => r.owner_profile_disabled === true)
+    }
+    if (!s) return base
+    return base.filter(
       (r) =>
         (r.business_name || '').toLowerCase().includes(s) ||
         (r.account_email || '').toLowerCase().includes(s) ||
         (r.client_type || '').toLowerCase().includes(s) ||
         (r.account_user_name || '').toLowerCase().includes(s),
     )
-  }, [rows, q])
+  }, [rows, q, filter])
 
   const pendingCount = useMemo(
     () => rows.filter((r) => r.account_approved === false && isBusinessOwnerAccountType(r.owner_account_type)).length,
@@ -252,19 +260,41 @@ export default function AdminOwnerCards() {
             <span className="admin-stat-n">{rows.length}</span> total
           </span>
           {pendingCount > 0 && (
-            <span className="admin-stat-chip admin-stat-chip--pending">
+            <button
+              type="button"
+              className="admin-stat-chip admin-stat-chip--pending"
+              aria-pressed={filter === 'pending'}
+              onClick={() => setFilter((v) => (v === 'pending' ? 'all' : 'pending'))}
+              title={filter === 'pending' ? 'Showing pending approval (click to clear)' : 'Show only pending approval'}
+            >
               <span className="admin-stat-n">{pendingCount}</span> pending approval
-            </span>
+            </button>
           )}
           {disabledProfileCount > 0 && (
-            <span className="admin-stat-chip admin-stat-chip--disabled">
+            <button
+              type="button"
+              className="admin-stat-chip admin-stat-chip--disabled"
+              aria-pressed={filter === 'disabled'}
+              onClick={() => setFilter((v) => (v === 'disabled' ? 'all' : 'disabled'))}
+              title={filter === 'disabled' ? 'Showing profile disabled (click to clear)' : 'Show only profile disabled'}
+            >
               <span className="admin-stat-n">{disabledProfileCount}</span> profile disabled
-            </span>
+            </button>
           )}
           {q && (
             <span className="admin-stat-chip">
               <span className="admin-stat-n">{filtered.length}</span> matching
             </span>
+          )}
+          {filter !== 'all' && (
+            <button
+              type="button"
+              className="admin-reload-btn"
+              onClick={() => setFilter('all')}
+              title="Clear filter"
+            >
+              ✕ Clear filter
+            </button>
           )}
           <button className="admin-reload-btn" onClick={() => setTick((t) => t + 1)} title="Reload data">
             ↻ Reload
